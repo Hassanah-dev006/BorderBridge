@@ -1,0 +1,80 @@
+@startuml B4b_activity_fulfilment
+' BorderBridge - Appendix B.4b - Activity Diagram: preparation and fulfilment phase
+' From accepted trade plan to border-ready shipment
+!theme plain
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam ArrowColor #1F4E79
+skinparam ArrowFontSize 12
+skinparam activity {
+  BackgroundColor #F2F6FA
+  BorderColor #1F4E79
+  FontSize 13
+  DiamondBackgroundColor #DCE6F1
+  DiamondBorderColor #1F4E79
+  DiamondFontSize 12
+  StartColor #1F4E79
+  EndColor #1F4E79
+  BarColor #1F4E79
+}
+skinparam partition {
+  BorderColor #9BB3CC
+  FontColor #1F4E79
+  FontStyle bold
+  FontSize 14
+}
+
+|#FBFCFE|Trader|
+start
+:Trade plan accepted\n(from Figure B.4a);
+
+:Create shipment from plan\n(planning snapshot is immutable);
+
+repeat
+  :Obtain a required document;
+  :Mark checklist item as obtained;
+  |#F7F9FC|System|
+  :Recalculate readiness percentage\nand identify blocking item;
+  |#FBFCFE|Trader|
+repeat while (All mandatory items\nobtained?) is (no) not (yes)
+
+|#F7F9FC|System|
+:Set shipment status\nto "documents ready";
+
+|#FBFCFE|Trader|
+if (Transport required?) then (yes)
+  :Search matched transport providers;
+  :Send transport request;
+  |#F7F9FC|System|
+  :Notify provider and await response;
+  if (Request accepted?) then (no)
+    |#FBFCFE|Trader|
+    :Select an alternative provider;
+    note right
+      Returns to the transport
+      search step above
+    end note
+    stop
+  else (yes)
+    :Link provider to shipment and\nexchange contact details;
+  endif
+else (no)
+  |#FBFCFE|Trader|
+  :Arrange own transport;
+endif
+
+|#F7F9FC|System|
+:Set shipment status\nto "in transit";
+:Subscribe trader to alerts for\nthis corridor and crossing;
+
+|#FBFCFE|Trader|
+:Travel to the recommended crossing\nwith the completed document set;
+
+|#F7F9FC|System|
+:Record milestone events\nas the shipment progresses\n(at border, cleared, delivered);
+
+stop
+
+@enduml

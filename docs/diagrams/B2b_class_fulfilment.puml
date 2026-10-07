@@ -1,0 +1,127 @@
+@startuml B2b_class_fulfilment
+' BorderBridge - Appendix B.2b - Class Diagram: Fulfilment, corridor operations and services
+!theme plain
+skinparam dpi 150
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam nodesep 28
+skinparam ranksep 48
+skinparam ArrowColor #1F4E79
+skinparam ArrowFontSize 11
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #1F4E79
+  HeaderBackgroundColor #DCE6F1
+  FontSize 13
+  AttributeFontSize 11
+}
+skinparam package {
+  BackgroundColor #FBFCFE
+  BorderColor #9BB3CC
+  FontColor #1F4E79
+  FontStyle bold
+  FontSize 13
+}
+
+package "Fulfilment" {
+  class Shipment {
+    -shipmentId : UUID
+    -status : ShipmentStatus
+    -plannedTravelDate : Date
+    +transitionTo(s : ShipmentStatus) : void
+    +history() : List<ShipmentEvent>
+  }
+  class ShipmentEvent {
+    -eventId : UUID
+    -status : ShipmentStatus
+    -timestamp : DateTime
+    -location : String
+    -note : String
+  }
+  class TransportListing {
+    -listingId : UUID
+    -vehicleType : VehicleType
+    -payloadCapacityKg : Decimal
+    -permittedCategories : Set<ProductCategory>
+    -indicativeRate : Money
+  }
+  class TransportRequest {
+    -requestId : UUID
+    -state : RequestState
+    -collectionDate : Date
+    -quotedPrice : Money
+    +accept() : void
+    +decline() : void
+  }
+  class MarketListing {
+    -listingId : UUID
+    -type : ListingType
+    -productCategories : Set<ProductCategory>
+    -location : String
+    -validUntil : Date
+  }
+}
+
+package "Corridor Operations" {
+  class BorderCrossing {
+    -crossingId : UUID
+    -name : String
+    -officialStatus : BorderStatus
+    -openingHours : Schedule
+    -typicalProcessingTime : Duration
+    +aggregateStatus() : BorderStatus
+  }
+  class BorderReport {
+    -reportId : UUID
+    -category : ConditionCategory
+    -estimatedWaitMinutes : Integer
+    -reportedAt : DateTime
+    -weight : Decimal
+    +isExpired() : Boolean
+  }
+}
+
+package "Notification" {
+  class Subscription {
+    -subscriptionId : UUID
+    -corridors : Set<UUID>
+    -crossings : Set<UUID>
+    -channels : Set<Channel>
+  }
+  class Notification {
+    -notificationId : UUID
+    -type : NotificationType
+    -body : String
+    -dispatchedAt : DateTime
+    -channel : Channel
+  }
+}
+
+Shipment "1" *-- "1..*" ShipmentEvent : logs >
+Shipment "0..1" --> "0..1" TransportRequest : fulfilled by >
+TransportRequest "0..*" --> "1" TransportListing : targets >
+Shipment "0..*" --> "1" BorderCrossing : routed via >
+BorderCrossing "1" *-- "0..*" BorderReport : receives >
+Subscription "1" --> "0..*" Notification : generates >
+Subscription "0..*" ..> "1" BorderCrossing : watches >
+
+' layout constraints: stack the packages vertically
+MarketListing -[hidden]down- TransportListing
+TransportListing -[hidden]down- BorderCrossing
+BorderReport -[hidden]down- Subscription
+
+note bottom of Shipment
+  Status transitions are validated against a fixed
+  state model — planned, documents ready, in transit,
+  at border, cleared, delivered, cancelled (FR-SHP-02).
+  Invalid transitions are rejected.
+end note
+
+note bottom of BorderReport
+  Report weight decays with age and reports are
+  excluded from the aggregate beyond the expiry
+  window (FR-BRD-05). Report age is always shown.
+end note
+
+@enduml

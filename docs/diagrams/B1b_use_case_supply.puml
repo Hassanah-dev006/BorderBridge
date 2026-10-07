@@ -1,0 +1,106 @@
+@startuml B1b_use_case_supply
+' BorderBridge - Appendix B.1b - Use Case Diagram: Providers, officials and administration
+!theme plain
+skinparam dpi 150
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultFontName Calibri
+skinparam nodesep 22
+skinparam ranksep 55
+skinparam ArrowColor #1F4E79
+skinparam ArrowFontSize 11
+skinparam actor {
+  BorderColor #1F4E79
+  BackgroundColor #FFFFFF
+  FontSize 14
+  FontStyle bold
+}
+skinparam usecase {
+  BackgroundColor #F2F6FA
+  BorderColor #1F4E79
+  FontSize 12
+}
+skinparam package {
+  BackgroundColor #FBFCFE
+  BorderColor #9BB3CC
+  FontColor #1F4E79
+  FontStyle bold
+  FontSize 13
+}
+
+left to right direction
+
+actor "Transport\nProvider" as TP
+actor "Buyer /\nSupplier" as BS
+actor "Trader" as T
+actor "Customs\nOfficer" as CO
+actor "Administrator" as AD
+
+rectangle "BorderBridge — Providers, officials and administration" {
+
+  package "Transport Marketplace" {
+    usecase "Publish Transport\nCapacity (FR-TRN-01)" as V01
+    usecase "Match Transport\n(FR-TRN-02)" as V02
+    usecase "Request Transport\n(FR-TRN-03)" as V03
+    usecase "Respond to Transport\nRequest (FR-TRN-04)" as V04
+    usecase "Rate Completed\nEngagement (FR-TRN-05)" as V05
+  }
+
+  package "Buyer and Supplier Discovery" {
+    usecase "Publish Market\nListing (FR-MKT-01)" as V06
+    usecase "Discover\nCounterparties (FR-MKT-02)" as V07
+    usecase "Initiate Contact\n(FR-MKT-03)" as V08
+    usecase "Report a Listing\n(FR-MKT-04)" as V09
+  }
+
+  package "Border Authority" {
+    usecase "Publish Official\nBorder Status (FR-BRD-04)" as V10
+    usecase "View Border\nDetails (FR-BRD-02)" as V11
+  }
+
+  package "Administration" {
+    usecase "Verify Service\nProvider (FR-ACC-06)" as V12
+    usecase "Maintain Regulatory\nRules (FR-ADM-01)" as V13
+    usecase "Publish Regulatory\nChange (FR-ADM-02)" as V14
+    usecase "Maintain Source\nAttribution (FR-ADM-03)" as V15
+    usecase "Flag Rules for\nRe-verification (FR-ADM-04)" as V16
+    usecase "Moderate User\nContent (FR-ADM-05)" as V17
+  }
+}
+
+TP --> V01
+TP --> V04
+TP --> V05
+BS --> V06
+BS --> V08
+T --> V02
+T --> V03
+T --> V05
+T --> V07
+T --> V09
+T --> V11
+CO --> V10
+CO --> V11
+AD --> V12
+AD --> V13
+AD --> V14
+AD --> V16
+AD --> V17
+
+V03 ..> V04 : <<include>>
+V13 ..> V15 : <<include>>
+V14 ..> V13 : <<extend>>
+V07 ..> V08 : <<extend>>
+V09 ..> V17 : <<include>>
+V01 ..> V12 : <<include>>
+V06 ..> V12 : <<include>>
+
+note bottom of V14
+  Publication is a distinct, audited step.
+  It activates the new rule version and
+  emits the change event consumed by the
+  notification service (FR-NOT-02).
+end note
+
+@enduml

@@ -1,0 +1,151 @@
+@startuml B2a_class_core
+' BorderBridge - Appendix B.2a - Class Diagram: Users, trade planning and regulatory knowledge
+!theme plain
+skinparam dpi 150
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam nodesep 28
+skinparam ranksep 48
+skinparam ArrowColor #1F4E79
+skinparam ArrowFontSize 11
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #1F4E79
+  HeaderBackgroundColor #DCE6F1
+  FontSize 13
+  AttributeFontSize 11
+}
+skinparam package {
+  BackgroundColor #FBFCFE
+  BorderColor #9BB3CC
+  FontColor #1F4E79
+  FontStyle bold
+  FontSize 13
+}
+
+package "Users" {
+  abstract class User {
+    -userId : UUID
+    -phoneNumber : String
+    -preferredLanguage : Locale
+    -passwordHash : String
+    -isVerified : Boolean
+    +authenticate() : Session
+    +recoverCredential() : void
+  }
+  class Trader {
+    -nationalIdEncrypted : String
+    -businessName : String
+    -preferredCurrency : Currency
+    +createTradeIntention() : TradeIntention
+  }
+  class TransportProvider {
+    -licenceNumber : String
+    -rating : Decimal
+  }
+  class BuyerSupplier {
+    -marketLocation : String
+    -rating : Decimal
+  }
+  class CustomsOfficer {
+    -borderPostId : UUID
+    -authorityName : String
+  }
+  class Administrator {
+    -adminRole : AdminRole
+    +publishRule() : RegulatoryRule
+  }
+
+  User <|-- Trader
+  User <|-- TransportProvider
+  User <|-- BuyerSupplier
+  User <|-- CustomsOfficer
+  User <|-- Administrator
+}
+
+package "Trade Planning" {
+  class TradeIntention {
+    -intentionId : UUID
+    -quantity : Decimal
+    -unit : UnitOfMeasure
+    -declaredValue : Money
+    -createdAt : DateTime
+  }
+  class Product {
+    -productId : UUID
+    -name : String
+    -hsCode : String
+    -category : ProductCategory
+  }
+  class Corridor {
+    -corridorId : UUID
+    -originCountry : CountryCode
+    -destinationCountry : CountryCode
+    -isSupported : Boolean
+  }
+  class Checklist {
+    -checklistId : UUID
+    -generatedAt : DateTime
+    -isSimplifiedRegime : Boolean
+    +readinessPercent() : Decimal
+  }
+  class ChecklistItem {
+    -itemId : UUID
+    -name : String
+    -isMandatory : Boolean
+    -issuingAuthority : String
+    -isObtained : Boolean
+  }
+  class CostEstimate {
+    -estimateId : UUID
+    -landedTotal : Money
+    -confidenceRange : Decimal
+  }
+  class CostLine {
+    -lineId : UUID
+    -description : String
+    -rateApplied : Decimal
+    -amount : Money
+  }
+}
+
+package "Regulatory Knowledge Base" {
+  class RegulatoryRule {
+    -ruleId : UUID
+    -version : Integer
+    -ruleType : RuleType
+    -hsCodeRange : String
+    -valueThreshold : Money
+    -effectiveFrom : Date
+    -sourceCitation : String
+    -lastVerifiedDate : Date
+    +isCurrent() : Boolean
+  }
+  class ExchangeRate {
+    -currencyPair : String
+    -rate : Decimal
+    -retrievedAt : DateTime
+    +isStale() : Boolean
+  }
+}
+
+Trader "1" *-- "0..*" TradeIntention : creates >
+TradeIntention "0..*" --> "1" Product : concerns >
+TradeIntention "0..*" --> "1" Corridor : travels >
+TradeIntention "1" *-- "0..1" Checklist : yields >
+TradeIntention "1" *-- "0..1" CostEstimate : yields >
+Checklist "1" *-- "1..*" ChecklistItem : contains >
+CostEstimate "1" *-- "1..*" CostLine : itemises >
+CostEstimate "0..*" --> "1" ExchangeRate : applied >
+ChecklistItem "0..*" --> "1" RegulatoryRule : derived from >
+CostLine "0..*" --> "1" RegulatoryRule : derived from >
+Administrator "1" --> "0..*" RegulatoryRule : maintains >
+
+note bottom of RegulatoryRule
+  Rules are versioned and never overwritten (NFR-ACC-05).
+  Every rule carries a source citation and a last-verified
+  date, both surfaced to the trader (NFR-ACC-01).
+end note
+
+@enduml

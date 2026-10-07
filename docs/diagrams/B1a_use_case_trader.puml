@@ -1,0 +1,99 @@
+@startuml B1a_use_case_trader
+' BorderBridge - Appendix B.1a - Use Case Diagram: Trader-facing functions
+!theme plain
+skinparam dpi 150
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultFontName Calibri
+skinparam nodesep 22
+skinparam ranksep 55
+skinparam ArrowColor #1F4E79
+skinparam ArrowFontSize 11
+skinparam actor {
+  BorderColor #1F4E79
+  BackgroundColor #FFFFFF
+  FontSize 14
+  FontStyle bold
+}
+skinparam usecase {
+  BackgroundColor #F2F6FA
+  BorderColor #1F4E79
+  FontSize 12
+}
+skinparam package {
+  BackgroundColor #FBFCFE
+  BorderColor #9BB3CC
+  FontColor #1F4E79
+  FontStyle bold
+  FontSize 13
+}
+
+left to right direction
+
+actor "Trader" as T
+actor "Scheduler\n(system)" as SY
+
+rectangle "BorderBridge — Trader-facing functions" {
+
+  package "Account and Identity" {
+    usecase "Register Account\n(FR-ACC-01)" as U01
+    usecase "Verify Account\n(FR-ACC-02)" as U02
+    usecase "Authenticate\n(FR-ACC-03)" as U03
+    usecase "Manage Trader\nProfile (FR-ACC-05)" as U04
+  }
+
+  package "Trade Planning" {
+    usecase "Create Trade\nIntention (FR-REQ-01)" as U05
+    usecase "Generate Document\nChecklist (FR-REQ-02)" as U06
+    usecase "Determine STR\nEligibility (FR-REQ-03)" as U07
+    usecase "Estimate Landed\nCost (FR-CST-01)" as U08
+    usecase "Convert Currency\n(FR-CST-02)" as U09
+    usecase "Export Checklist\n(FR-REQ-05)" as U10
+    usecase "Track Checklist\nCompletion (FR-REQ-04)" as U11
+  }
+
+  package "Corridor and Border" {
+    usecase "Recommend Border\nCrossing (FR-BRD-01)" as U12
+    usecase "Report Border\nCondition (FR-BRD-03)" as U13
+  }
+
+  package "Shipment and Alerts" {
+    usecase "Create Shipment\n(FR-SHP-01)" as U14
+    usecase "Update Shipment\nStatus (FR-SHP-02)" as U15
+    usecase "Manage Alert\nSubscriptions (FR-NOT-01)" as U16
+    usecase "Dispatch Alerts\n(FR-NOT-02/03/04)" as U17
+  }
+}
+
+T --> U01
+T --> U03
+T --> U04
+T --> U05
+T --> U10
+T --> U11
+T --> U13
+T --> U14
+T --> U15
+T --> U16
+SY --> U17
+
+U01 ..> U02 : <<include>>
+U05 ..> U06 : <<include>>
+U05 ..> U08 : <<include>>
+U05 ..> U12 : <<include>>
+U06 ..> U07 : <<include>>
+U08 ..> U09 : <<include>>
+U10 ..> U06 : <<extend>>
+U11 ..> U06 : <<extend>>
+U14 ..> U06 : <<include>>
+
+note bottom of U07
+  Applies the EAC Simplified Trade Regime
+  threshold (USD 2,000) and the qualifying
+  product list. Where the consignment
+  qualifies, a reduced requirement set
+  replaces the full customs set.
+end note
+
+@enduml

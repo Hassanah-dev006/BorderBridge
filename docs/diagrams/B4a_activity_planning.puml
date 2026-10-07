@@ -1,0 +1,88 @@
+@startuml B4a_activity_planning
+' BorderBridge - Appendix B.4a - Activity Diagram: planning phase
+' From trade intention to presented trade plan
+!theme plain
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam ArrowColor #1F4E79
+skinparam ArrowFontSize 12
+skinparam activity {
+  BackgroundColor #F2F6FA
+  BorderColor #1F4E79
+  FontSize 13
+  DiamondBackgroundColor #DCE6F1
+  DiamondBorderColor #1F4E79
+  DiamondFontSize 12
+  StartColor #1F4E79
+  EndColor #1F4E79
+  BarColor #1F4E79
+}
+skinparam partition {
+  BorderColor #9BB3CC
+  FontColor #1F4E79
+  FontStyle bold
+  FontSize 14
+}
+
+|#FBFCFE|Trader|
+start
+:Enter origin, destination,\nproduct and quantity;
+
+|#F7F9FC|System|
+:Resolve corridor\nand HS classification;
+
+if (Corridor supported?) then (no)
+  :Display coverage message\nand offer to register interest;
+  stop
+else (yes)
+endif
+
+:Persist trade intention;
+
+|#FBFCFE|Requirements Engine|
+:Load active rules for\ncorridor, HS code and value;
+
+if (Any rule overdue for\nre-verification?) then (yes)
+  :Mark affected output\n"pending re-verification"\n(FR-ADM-04);
+else (no)
+endif
+
+if (Declared value below\nUSD 2,000 threshold?) then (yes)
+  if (Product on the qualifying\nSTR product list?) then (yes)
+    :Apply Simplified Trade Regime\nrequirement set;
+    :Record basis of eligibility\nand cite the instrument;
+  else (no)
+    :Apply full customs\nrequirement set;
+  endif
+else (no)
+  :Apply full customs\nrequirement set;
+endif
+
+:Assemble checklist items with\nissuing authority, source citation\nand last-verified date;
+
+|#F7F9FC|System|
+fork
+  :Compute duties, taxes and fees;
+  :Convert currency at current rate;
+  :Assemble itemised cost estimate;
+fork again
+  :Rank border crossings by official\nstatus, reported delay and distance;
+end fork
+
+:Present trade plan\n(checklist + cost + crossing);
+
+|#FBFCFE|Trader|
+:Review trade plan;
+
+if (Proceed with this trade?) then (no)
+  :Adjust product, quantity\nor destination;
+  stop
+else (yes)
+endif
+
+:Continue to Figure B.4b\n(shipment preparation);
+stop
+
+@enduml

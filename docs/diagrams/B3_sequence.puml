@@ -1,0 +1,135 @@
+@startuml B3_sequence
+' BorderBridge - Appendix B.3 - Sequence Diagram (Behavioural)
+' Scenario: Trader requests a trade plan for a specific consignment
+!theme plain
+skinparam dpi 300
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam defaultFontName Calibri
+skinparam ArrowColor #1F4E79
+skinparam ArrowFontSize 11
+skinparam sequence {
+  ParticipantBorderColor #1F4E79
+  ParticipantBackgroundColor #DCE6F1
+  ParticipantFontSize 12
+  ParticipantFontStyle bold
+  ActorBorderColor #1F4E79
+  ActorBackgroundColor #FFFFFF
+  LifeLineBorderColor #9BB3CC
+  LifeLineBackgroundColor #F2F6FA
+  BoxBorderColor #9BB3CC
+  BoxBackgroundColor #FBFCFE
+  BoxFontColor #1F4E79
+  GroupBorderColor #1F4E79
+  GroupBackgroundColor #DCE6F1
+  GroupHeaderFontSize 11
+}
+
+actor "Trader" as T
+
+box "Client" #FBFCFE
+  participant "PWA Client" as C
+end box
+
+box "Application Layer" #FBFCFE
+  participant "TradeService" as TS
+  participant "Requirements\nEngine" as RE
+  participant "Cost\nEngine" as CE
+  participant "Border\nService" as BS
+end box
+
+box "Data and Integration" #FBFCFE
+  participant "Rule\nRepository" as RR
+  participant "ExchangeRate\nAdapter" as XA
+  database "Database" as DB
+end box
+
+autonumber "<b>[00]"
+
+T -> C : enter origin, destination,\nproduct, quantity
+activate C
+
+C -> TS : POST /trade-intentions\n(FR-REQ-01)
+activate TS
+
+TS -> DB : resolve corridor and HS code
+activate DB
+DB --> TS : corridor, product classification
+deactivate DB
+
+alt corridor is not supported
+  TS --> C : 422 corridor out of coverage
+  C --> T : "This route is not yet covered"
+else corridor is supported
+  TS -> DB : persist TradeIntention
+  activate DB
+  DB --> TS : intentionId
+  deactivate DB
+
+  == Checklist generation (FR-REQ-02, FR-REQ-03) ==
+
+  TS -> RE : generateChecklist(intentionId)
+  activate RE
+  RE -> RR : findRules(corridor, hsCode, value)
+  activate RR
+  RR --> RE : active rule set (versioned)
+  deactivate RR
+
+  alt value < USD 2,000 AND product on STR list
+    RE -> RE : applySimplifiedRegime()
+  else otherwise
+    RE -> RE : applyStandardRequirements()
+  end
+
+  RE --> TS : Checklist\n(items + citations + verified dates)
+  deactivate RE
+
+  == Cost estimation (FR-CST-01, FR-CST-02) ==
+
+  TS -> CE : estimate(intentionId)
+  activate CE
+  CE -> RR : findRateRules(corridor, hsCode)
+  activate RR
+  RR --> CE : duty, tax and fee rates
+  deactivate RR
+
+  CE -> XA : getRate(originCcy, destCcy)
+  activate XA
+  alt live rate available
+    XA --> CE : current rate
+  else source down (NFR-REL-04)
+    XA --> CE : cached rate + age
+  end
+  deactivate XA
+
+  CE -> CE : computeLandedCost()
+  CE --> TS : CostEstimate\n(itemised + confidence range)
+  deactivate CE
+
+  == Border recommendation (FR-BRD-01) ==
+
+  TS -> BS : recommendCrossing(intentionId)
+  activate BS
+  BS -> DB : load crossings +\nstatus + reports
+  activate DB
+  DB --> BS : candidate crossings
+  deactivate DB
+  BS -> BS : rank by status, delay, distance
+  BS --> TS : ranked crossings
+  deactivate BS
+
+  TS -> DB : persist trade plan
+  activate DB
+  DB --> TS : ok
+  deactivate DB
+
+  TS --> C : 200 TradePlan\n(checklist, estimate, crossings)
+  deactivate TS
+
+  C -> C : cache plan for offline use\n(NFR-REL-02)
+  C --> T : display trade plan
+end
+
+deactivate C
+
+@enduml
