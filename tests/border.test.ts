@@ -1,10 +1,3 @@
-/**
- * Unit tests for the border service.
- *
- * The SRS states FR-BRD-01 and FR-BRD-05 as conditions with explicit thresholds, so
- * these tests assert against the same numbers the document states. A fixed clock is
- * injected throughout, so nothing here depends on when it runs.
- */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
