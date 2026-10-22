@@ -1,13 +1,3 @@
-/**
- * Border service.
- *
- * Realises SRS FR-BRD-01 (crossing recommendation), FR-BRD-03 (community condition
- * reports) and FR-BRD-05 (decay and expiry of stale reports).
- *
- * The SRS states both of these as conditions rather than intentions, so the thresholds
- * below are the specification, not arbitrary constants — each is named and exported so
- * a test can assert against the same number the document states.
- */
 import crossingBook from '../../data/crossings.json';
 import type {
   BorderCrossing, BorderReport, CrossingRanking, RankedCrossing, WeightedReport,
