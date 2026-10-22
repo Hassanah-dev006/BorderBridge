@@ -1,14 +1,3 @@
-/**
- * Requirements engine and cost engine.
- *
- * Realises SRS FR-REQ-02 (checklist generation), FR-REQ-03 (simplified-regime
- * eligibility), FR-CST-01 (landed cost), FR-CST-02 (currency conversion) and
- * FR-CST-03 (per-line rule attribution).
- *
- * These functions are pure: they take an intention and the rule set and return a
- * result. No I/O, no framework. That is what makes them unit-testable to the 80%
- * statement coverage required by NFR-MNT-01.
- */
 import {
   getCorridor, getProduct, getRulesForCorridor, getExchangeRates, isOverdue,
 } from './repository';
