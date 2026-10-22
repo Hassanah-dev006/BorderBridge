@@ -1,12 +1,3 @@
-/**
- * Data access seam.
- *
- * The regulatory knowledge base is held as JSON so that a trained non-developer can
- * amend it without touching code (SRS NFR-MNT-03) and so that rules remain data rather
- * than logic (constraint C1). Everything above this file depends only on the functions
- * exported here, never on the storage format — so swapping JSON for PostgreSQL means
- * reimplementing this one module and nothing else (NFR-CMP-05).
- */
 import catalogue from '../../data/catalogue.json';
 import ruleBook from '../../data/rules.json';
 import type { Corridor, Product, RegulatoryRule } from './types';
