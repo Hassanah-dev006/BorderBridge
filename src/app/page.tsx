@@ -1,9 +1,3 @@
-/**
- * FR-REQ-01 — state a trade intention.
- *
- * One question, four fields. The interface is organised around the consignment, not
- * around a menu of features (SRS UI-01).
- */
 import { listSupportedCorridors, listProducts } from '@/lib/repository';
 
 export default function Home() {
