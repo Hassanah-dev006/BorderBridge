@@ -1,0 +1,86 @@
+{
+  "_comment": "Border crossings and community condition reports. Report timestamps are stored as hours-before-now so that the seed stays meaningful without being rewritten daily; the repository converts them to absolute times on load. In production these are real timestamps written by FR-BRD-03.",
+  "schemaVersion": 1,
+  "crossings": [
+    {
+      "id": "GATUNA",
+      "corridorId": "RW-UG",
+      "name": "Gatuna / Katuna",
+      "officialStatus": "open",
+      "openingHours": "06:00–22:00",
+      "openHoursPerDay": 16,
+      "roadDistanceKm": 78,
+      "agencies": ["Rwanda Revenue Authority", "Uganda Revenue Authority", "Immigration", "RAB"],
+      "productClasses": ["Agricultural", "Animal product", "Manufactured"],
+      "typicalProcessingMinutes": 45,
+      "sourceCitation": "EAC One Stop Border Post programme; RRA border post listing",
+      "lastVerifiedDate": "2026-08-14"
+    },
+    {
+      "id": "KAGITUMBA",
+      "corridorId": "RW-UG",
+      "name": "Kagitumba / Mirama Hills",
+      "officialStatus": "open",
+      "openingHours": "06:00–18:00",
+      "openHoursPerDay": 12,
+      "roadDistanceKm": 165,
+      "agencies": ["Rwanda Revenue Authority", "Uganda Revenue Authority", "Immigration"],
+      "productClasses": ["Agricultural", "Manufactured"],
+      "typicalProcessingMinutes": 35,
+      "sourceCitation": "EAC One Stop Border Post programme",
+      "lastVerifiedDate": "2026-08-14"
+    },
+    {
+      "id": "CYANIKA",
+      "corridorId": "RW-UG",
+      "name": "Cyanika",
+      "officialStatus": "restricted",
+      "openingHours": "08:00–17:00",
+      "openHoursPerDay": 9,
+      "roadDistanceKm": 102,
+      "agencies": ["Rwanda Revenue Authority", "Immigration"],
+      "productClasses": ["Agricultural"],
+      "typicalProcessingMinutes": 60,
+      "restrictionNote": "Passenger and small consignment traffic only; no commercial freight clearance.",
+      "sourceCitation": "RRA border post listing",
+      "lastVerifiedDate": "2026-08-14"
+    },
+    {
+      "id": "KATUNA",
+      "corridorId": "UG-RW",
+      "name": "Katuna / Gatuna",
+      "officialStatus": "open",
+      "openingHours": "06:00–22:00",
+      "openHoursPerDay": 16,
+      "roadDistanceKm": 78,
+      "agencies": ["Uganda Revenue Authority", "Rwanda Revenue Authority", "Immigration"],
+      "productClasses": ["Agricultural", "Animal product", "Manufactured"],
+      "typicalProcessingMinutes": 45,
+      "sourceCitation": "EAC One Stop Border Post programme",
+      "lastVerifiedDate": "2026-08-14"
+    },
+    {
+      "id": "MIRAMA",
+      "corridorId": "UG-RW",
+      "name": "Mirama Hills / Kagitumba",
+      "officialStatus": "open",
+      "openingHours": "06:00–18:00",
+      "openHoursPerDay": 12,
+      "roadDistanceKm": 165,
+      "agencies": ["Uganda Revenue Authority", "Rwanda Revenue Authority", "Immigration"],
+      "productClasses": ["Agricultural", "Manufactured"],
+      "typicalProcessingMinutes": 35,
+      "sourceCitation": "EAC One Stop Border Post programme",
+      "lastVerifiedDate": "2026-08-14"
+    }
+  ],
+  "reports": [
+    { "id": "r1", "crossingId": "GATUNA",    "category": "busy",         "waitMinutes": 120, "hoursAgo": 1,  "note": "Long queue of trucks at the Rwandan side." },
+    { "id": "r2", "crossingId": "GATUNA",    "category": "busy",         "waitMinutes": 95,  "hoursAgo": 3,  "note": "" },
+    { "id": "r3", "crossingId": "GATUNA",    "category": "normal",       "waitMinutes": 40,  "hoursAgo": 5,  "note": "Moving steadily this morning." },
+    { "id": "r4", "crossingId": "GATUNA",    "category": "severe-delay", "waitMinutes": 300, "hoursAgo": 20, "note": "System outage — should now be resolved." },
+    { "id": "r5", "crossingId": "KAGITUMBA", "category": "normal",       "waitMinutes": 25,  "hoursAgo": 2,  "note": "Quiet." },
+    { "id": "r6", "crossingId": "KAGITUMBA", "category": "normal",       "waitMinutes": 30,  "hoursAgo": 4,  "note": "" },
+    { "id": "r7", "crossingId": "CYANIKA",   "category": "normal",       "waitMinutes": 20,  "hoursAgo": 2,  "note": "" }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "_comment": "Corridors, products and exchange rates. Products carry HS codes so that rules in rules.json can bind to them by prefix. strListed marks membership of the EAC Simplified Trade Regime common list.",
+  "schemaVersion": 1,
+  "corridors": [
+    {
+      "id": "RW-UG",
+      "originCountry": "RW",
+      "originName": "Rwanda",
+      "destinationCountry": "UG",
+      "destinationName": "Uganda",
+      "originCurrency": "RWF",
+      "destinationCurrency": "UGX",
+      "isSupported": true,
+      "crossings": [
+        { "id": "GATUNA", "name": "Gatuna / Katuna", "isDefault": true },
+        { "id": "KAGITUMBA", "name": "Kagitumba / Mirama Hills", "isDefault": false }
+      ]
+    },
+    {
+      "id": "UG-RW",
+      "originCountry": "UG",
+      "originName": "Uganda",
+      "destinationCountry": "RW",
+      "destinationName": "Rwanda",
+      "originCurrency": "UGX",
+      "destinationCurrency": "RWF",
+      "isSupported": true,
+      "crossings": [
+        { "id": "KATUNA", "name": "Katuna / Gatuna", "isDefault": true },
+        { "id": "MIRAMA", "name": "Mirama Hills / Kagitumba", "isDefault": false }
+      ]
+    },
+    {
+      "id": "RW-KE",
+      "originCountry": "RW",
+      "originName": "Rwanda",
+      "destinationCountry": "KE",
+      "destinationName": "Kenya",
+      "originCurrency": "RWF",
+      "destinationCurrency": "KES",
+      "isSupported": false,
+      "crossings": []
+    }
+  ],
+  "products": [
+    { "id": "coffee-green",   "name": "Coffee, green (unroasted)", "hsCode": "0901.11", "category": "Agricultural", "unit": "kg", "strListed": true,  "eacOrigin": true },
+    { "id": "tea",            "name": "Tea, black",                "hsCode": "0902.30", "category": "Agricultural", "unit": "kg", "strListed": true,  "eacOrigin": true },
+    { "id": "maize",          "name": "Maize (corn)",              "hsCode": "1005.90", "category": "Agricultural", "unit": "kg", "strListed": true,  "eacOrigin": true },
+    { "id": "beans",          "name": "Beans, dried",              "hsCode": "0713.33", "category": "Agricultural", "unit": "kg", "strListed": true,  "eacOrigin": true },
+    { "id": "irish-potatoes", "name": "Potatoes, fresh",           "hsCode": "0701.90", "category": "Agricultural", "unit": "kg", "strListed": true,  "eacOrigin": true },
+    { "id": "bananas",        "name": "Bananas, fresh",            "hsCode": "0803.90", "category": "Agricultural", "unit": "kg", "strListed": true,  "eacOrigin": true },
+    { "id": "tomatoes",       "name": "Tomatoes, fresh",           "hsCode": "0702.00", "category": "Agricultural", "unit": "kg", "strListed": true,  "eacOrigin": true },
+    { "id": "milk",           "name": "Milk and cream",            "hsCode": "0401.20", "category": "Animal product", "unit": "litre", "strListed": true, "eacOrigin": true },
+    { "id": "textiles",       "name": "Textiles, woven fabric",    "hsCode": "5208.52", "category": "Manufactured", "unit": "kg", "strListed": false, "eacOrigin": true },
+    { "id": "footwear",       "name": "Footwear",                  "hsCode": "6403.99", "category": "Manufactured", "unit": "pair", "strListed": false, "eacOrigin": false },
+    { "id": "soap",           "name": "Soap, household",           "hsCode": "3401.19", "category": "Manufactured", "unit": "kg", "strListed": true,  "eacOrigin": true },
+    { "id": "furniture",      "name": "Furniture, wooden",         "hsCode": "9403.60", "category": "Manufactured", "unit": "piece", "strListed": false, "eacOrigin": true }
+  ],
+  "exchangeRates": {
+    "_comment": "Cached rates. In production these come from the exchange-rate adapter (FR-CST-02); when the source is unavailable the cached value is used and its age shown to the trader (NFR-REL-04, NFR-ACC-03).",
+    "retrievedAt": "2026-10-05T06:00:00Z",
+    "base": "USD",
+    "rates": { "USD": 1, "RWF": 1310, "UGX": 3720, "KES": 129 }
+  }
+}
