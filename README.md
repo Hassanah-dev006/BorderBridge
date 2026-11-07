@@ -1,156 +1,439 @@
 # BorderBridge
 
-A cross-border trade planning platform for small-scale traders in the East African Community.
+**Know what your consignment needs, and what it will cost, before you travel.**
 
-Enter a consignment — route, product, quantity, value — and the system returns the documents
-you need, whether you qualify for the EAC Simplified Trade Regime, and what the movement
-should cost, with the source and verification date of every rule it relied on.
+A cross-border trade planning tool for small-scale traders on the Rwanda–Uganda
+corridor. A trader states what they are moving; BorderBridge works out which documents
+that specific consignment needs, what it should cost, which border crossing to use, and
+why — citing the rule behind every answer.
 
-This is release **R1 Core**, the first increment of the roadmap in the project proposal.
+Built for the ALU BSc Software Engineering summative, implementing the requirements in
+*BorderBridge — Project Proposal and Software Requirements Specification*.
+
+- **Live application:** _add your Vercel URL here after deploying_
+- **SRS document:** _add your Google Drive link here_
 
 ---
 
-## Running it
+## Table of contents
 
-### 1. Install Node.js (once)
-
-Check whether you already have it. Open **Terminal** (press `Cmd + Space`, type `Terminal`,
-press Enter) and run:
-
-```bash
-node --version
-```
-
-If you see something like `v20.11.0` or higher, skip to step 2. If you see
-`command not found`, install Node from <https://nodejs.org> — download the **LTS** version
-and run the installer. Then close and reopen Terminal and check again.
-
-### 2. Install the project's dependencies (once)
-
-In Terminal, move into this folder and install:
-
-```bash
-cd path/to/borderbridge
-npm install
-```
-
-Replace `path/to/borderbridge` with the real path — or type `cd ` (with the space) and then
-drag the `borderbridge` folder from Finder into the Terminal window, which fills in the path
-for you.
-
-This takes a minute or two and creates a `node_modules` folder.
-
-### 3. Start it
-
-```bash
-npm run dev
-```
-
-Then open <http://localhost:3000> in your browser. Press `Ctrl + C` in Terminal to stop it.
-
-### Running the tests
-
-```bash
-npm test
-```
-
-21 tests cover the eligibility logic, checklist generation and cost calculation.
+1. [What it does](#what-it-does)
+2. [Prerequisites](#prerequisites)
+3. [Set it up — every step](#set-it-up--every-step)
+4. [Running it](#running-it)
+5. [Try it — a walkthrough](#try-it--a-walkthrough)
+6. [Deploying it publicly](#deploying-it-publicly)
+7. [How it is built](#how-it-is-built)
+8. [Requirements traceability](#requirements-traceability)
+9. [Testing](#testing)
+10. [Known limitations](#known-limitations)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## What it does
 
-| Requirement | Where it lives |
+| | |
 |---|---|
-| FR-REQ-01 — state a trade intention | `src/app/page.tsx` |
-| FR-REQ-02 — generate a document checklist | `generateChecklist()` in `src/lib/engines.ts` |
-| FR-REQ-03 — simplified-regime eligibility | `determineEligibility()` in `src/lib/engines.ts` |
-| FR-CST-01 — itemised landed cost | `estimateCost()` in `src/lib/engines.ts` |
-| FR-CST-02 — currency conversion | `toUsd()` / `fromUsd()` in `src/lib/engines.ts` |
-| FR-CST-03 — per-line rule attribution | every `CostLine` carries `sourceCitation` |
-| FR-CST-04 — guidance, not a determination | footer of `src/app/plan/page.tsx` |
+| **Accounts** | Register with a phone number, confirm it by one-time code, sign in, recover a forgotten password, keep a reusable profile |
+| **Trade planning** | State a consignment; get a document checklist, a Simplified Trade Regime ruling, and an itemised cost estimate — each line citing the instrument it came from |
+| **Border crossings** | A recommended crossing, ranked on official status, community-reported waiting time and road distance, which states which criterion decided it |
+| **Community reports** | Report the queue at a crossing; reports lose weight as they age and are discarded after twelve hours |
+| **Shipments** | Turn a plan into a trackable shipment whose plan is frozen, tick off documents as you obtain them, and record milestones to delivery |
+| **Administration** | Verify provider accounts; see which regulatory rules are overdue for re-verification |
 
-### Worked example
-
-Coffee, 200 kg, declared USD 1,200, Rwanda → Uganda:
-
-- **Qualifies** for the Simplified Trade Regime — under the USD 2,000 threshold *and* on the
-  common list. Both conditions are reported separately, so a trader learns which one decided it.
-- **5 documents**: ID, commercial invoice, Simplified Certificate of Origin, phytosanitary
-  certificate (HS 09 is a plant product), and a NAEB coffee export licence.
-- **USD 1,385** total — 1,200 goods + 180 transport + 0 duty (EAC preference) + 5 inspection fee.
-
-Raise the value to USD 2,500 and the plan changes: full customs procedure, an EAC Certificate
-of Origin and a customs declaration replace the simplified certificate, VAT at 18% applies, and
-the total becomes USD 3,145.
+The thing that makes it more than a reference site: it computes against **your**
+consignment. Published trade information exists in plenty of places. What does not
+exist is something that takes "200 kg of green coffee, Kigali to Kampala, worth USD
+1,200" and answers *you qualify for the Simplified Trade Regime, here are your five
+documents, it should cost USD 227, use Kagitumba* — and shows its working.
 
 ---
 
-## How it is put together
+## Prerequisites
 
-```
-data/
-  catalogue.json   corridors, products with HS codes, cached exchange rates
-  rules.json       the regulatory knowledge base
-src/
-  lib/
-    types.ts       domain types, mirroring the class diagram in SRS Appendix B
-    repository.ts  data access seam — the only file that knows where rules are stored
-    engines.ts     requirements engine + cost engine (pure functions, no I/O)
-  app/
-    page.tsx       the trade intention form
-    plan/page.tsx  the resulting plan
-tests/
-  engines.test.ts  21 unit tests
+| Requirement | Version | Check with | Where to get it |
+|---|---|---|---|
+| Node.js | 18.18 or newer | `node --version` | <https://nodejs.org> — take the LTS build |
+| npm | 9 or newer | `npm --version` | Comes with Node.js |
+| Git | any recent | `git --version` | <https://git-scm.com> |
+| A Postgres database | — | — | Free from [Neon](https://neon.tech) or [Supabase](https://supabase.com) — step 3 below |
+
+No other software is needed. Nothing compiles from source, so installation does not
+need Xcode command line tools, Visual Studio build tools or a C compiler.
+
+---
+
+## Set it up — every step
+
+### 1. Get the code
+
+```bash
+git clone https://github.com/Hassanah-dev006/BorderBridge.git
+cd BorderBridge
 ```
 
-**Rules are data, not code.** Everything the system tells a trader comes from
-`data/rules.json`. Adding a document requirement, changing a duty rate or correcting a
-citation means editing that file — no code change, no redeploy of logic. This is constraint
-C1 in the SRS, and it exists because tariff schedules and product lists change faster than
-software does.
+### 2. Install the dependencies
 
-**Every rule carries its source.** `sourceCitation` and `lastVerifiedDate` are mandatory
-fields, and they are displayed wherever the rule is shown. A trader who is told they need a
-phytosanitary certificate can see which instrument requires it and when that was last checked.
-That is what makes the advice contestable at a border rather than something to be taken on
-faith.
+```bash
+npm install
+```
 
-**Stale content is flagged, not hidden.** Any rule older than the 180-day review interval, or
-explicitly marked `needs-verification`, causes its checklist item or cost line to be badged in
-the interface, and widens the confidence range on the estimate from ±12% to ±20%. Several
-seeded rules are deliberately marked this way, because they are indicative figures that have
-not been confirmed against a primary source.
+Takes about thirty seconds. You will see a `node_modules` folder appear.
+
+### 3. Create a database
+
+The app needs a Postgres database. Either provider below has a free tier that is
+ample. **Neon** is the quicker of the two:
+
+<details open>
+<summary><strong>Using Neon</strong></summary>
+
+1. Go to <https://neon.tech> and sign up — GitHub sign-in is fastest.
+2. Click **Create project**. Name it `borderbridge`. Accept the default region.
+3. When the project opens, find the **Connection string** panel.
+4. Choose **Pooled connection** from the dropdown.
+5. Click the copy icon. You now have a string that looks like:
+   `postgresql://user:password@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require`
+
+</details>
+
+<details>
+<summary><strong>Using Supabase instead</strong></summary>
+
+1. Go to <https://supabase.com> and sign up.
+2. **New project**. Name it `borderbridge`, set a database password, pick a region.
+3. Wait for provisioning — a couple of minutes.
+4. Go to **Project Settings → Database → Connection string → URI**.
+5. Select the **Transaction pooler** entry — the one on **port 6543**, not 5432.
+6. Copy it and replace `[YOUR-PASSWORD]` with the password you set in step 2.
+
+</details>
+
+### 4. Create your environment file
+
+```bash
+cp .env.example .env.local
+```
+
+Open `.env.local` in a text editor. Fill in both values:
+
+```
+DATABASE_URL=postgresql://...the string you copied in step 3...
+SESSION_SECRET=...a long random string...
+```
+
+Generate the session secret by running this and pasting the output:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+`.env.local` is listed in `.gitignore`, so your credentials never reach GitHub.
+
+### 5. Create the tables
+
+```bash
+npm run db:migrate
+```
+
+You should see:
+
+```
+Applying db/schema.sql ...
+
+Done. 8 tables present:
+  border_reports
+  checklist_progress
+  login_attempts
+  otp_codes
+  sessions
+  shipment_milestones
+  shipments
+  users
+```
+
+Safe to re-run at any time — every statement is guarded with `IF NOT EXISTS`.
+
+### 6. Check everything works
+
+```bash
+npm test
+```
+
+Expect **87 tests passing, 0 failing**. These need no database: the schema tests run
+Postgres in-process through PGlite.
 
 ---
 
-## Before this is used by a real trader
+## Running it
 
-The seeded rules in `data/rules.json` are a working starting point, not a verified dataset.
-Three categories need confirming against primary sources:
+```bash
+npm run dev
+```
 
-1. **The rates marked `needs-verification`** — Uganda VAT, the customs processing fee, the
-   inspection fee and the indicative transport rate. The interface already flags these; they
-   need checking against URA and RRA published schedules.
-2. **The coffee export licence** — NAEB procedures should be confirmed directly.
-3. **The STR common list** — `strListed` is set per product in `catalogue.json` from the
-   general shape of the agreed list. The actual list should be transcribed from the EAC
-   instrument.
+Open <http://localhost:3000>.
 
-Until then the system behaves correctly but some of what it says is indicative.
+To run the production build locally instead:
+
+```bash
+npm run build
+npm start
+```
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Development server with hot reload, on port 3000 |
+| `npm run build` | Production build |
+| `npm start` | Serve the production build |
+| `npm test` | Run the test suite |
+| `npm run db:migrate` | Create or update the database tables |
 
 ---
 
-## Where this goes next
+## Try it — a walkthrough
 
-Per the release roadmap in the proposal:
+A five-minute path through every major feature:
 
-- **R2 Corridor** — border crossing status, community delay reports, shipment tracking
-- **R3 Market** — transport matching, buyer and supplier discovery, the other three languages
-- **R4 Hardening** — offline support, USSD fallback, usability testing with traders
+1. **Plan a trade without an account.** On the home page choose *Rwanda → Uganda*,
+   *Coffee, green (unroasted)*, **200** kg, **1400** USD. Submit.
+   - You qualify for the Simplified Trade Regime, and the page explains both
+     conditions that were tested.
+   - Five documents, each with its issuing authority, lead time and legal basis.
+   - An itemised cost estimate; the transport line is flagged *unverified* because
+     that rule is past its review date.
+   - A recommended crossing, and the sentence explaining which criterion decided it.
+2. **Register.** Click *Create an account*. Use any phone number, for example
+   `0788123456`. The one-time code appears on screen — this prototype has no SMS
+   gateway, which the page says plainly. Enter it.
+3. **Fill in your profile.** Set your usual route to *Rwanda → Uganda*. Go back to the
+   home page: it is now pre-selected, and greets you by name.
+4. **Create a shipment.** Plan the same consignment again and press *Create shipment
+   from this plan*. The plan is now frozen.
+5. **Work the checklist.** Press *I have it* on each document. Watch the progress bar,
+   and the "Next:" line naming the single blocking document. When the last mandatory
+   one is ticked, the shipment advances to *Documents ready* by itself.
+6. **Move it along.** Mark it *in transit*, then *at the border*, then *cleared*, then
+   *delivered*. Note that the steps only ever appear in order.
+7. **Report the queue.** Go to *Border reports*, submit a report for Gatuna with a long
+   wait. Plan the same trade again — the recommendation changes, and the page cites
+   your report.
+8. **Sign out and back in.** Then deliberately get the password wrong three times to
+   see the progressive delay, and five times to see the lockout.
 
-**Moving to a database.** `src/lib/repository.ts` is the only file that knows rules live in
-JSON. Swapping to PostgreSQL means reimplementing that one module behind the same function
-signatures; nothing above it changes. JSON was chosen for R1 because it keeps the rules
-human-editable and removes database setup from the critical path — not because it is the
-long-term answer.
+### Seeing the administrator view
+
+There is no self-service route to the admin role, by design. To promote your own
+account, run this against your database — the SQL editor in the Neon or Supabase
+dashboard will do:
+
+```sql
+UPDATE users SET role = 'admin' WHERE phone = '+250788123456';
+```
+
+Sign out and back in. An **Admin** tab appears.
+
+---
+
+## Deploying it publicly
+
+[Vercel](https://vercel.com) builds Next.js and has a free tier.
+
+1. Push your code to GitHub, and make sure the repository is **public**.
+2. Go to <https://vercel.com> and sign in with GitHub.
+3. **Add New… → Project**. Find `BorderBridge` and click **Import**.
+4. Before clicking Deploy, open **Environment Variables** and add both:
+
+   | Name | Value |
+   |---|---|
+   | `DATABASE_URL` | the same connection string from step 3 above |
+   | `SESSION_SECRET` | the same random string, or a fresh one |
+
+   Leave every other setting alone — Vercel detects Next.js by itself.
+5. Click **Deploy** and wait a couple of minutes.
+6. You will be given a URL such as `https://border-bridge.vercel.app`. That is the
+   public address.
+
+If you created the database *after* deploying, run `npm run db:migrate` locally — it
+points at the same database, so the tables appear for the deployed site too.
+
+### Deploying on Render instead
+
+Render also runs this project — `render.yaml` in the repository supplies the build and
+start commands. Sign in at <https://render.com>, choose **New → Blueprint**, point it
+at your repository, and paste your `DATABASE_URL` when prompted.
+
+**Read this before choosing Render's free plan for a graded submission.** Two free-tier
+behaviours work against you:
+
+1. **Free web services sleep after 15 minutes without traffic.** The next request has
+   to wake the instance, and Render's own dashboard warns this can delay it by 50
+   seconds or more. A marker clicking your link may well see a blank tab and assume the
+   site is down.
+2. **A free Render Postgres database expires 30 days after it is created.** After that
+   there is a 14-day grace period to upgrade, and then Render deletes the database and
+   its data. If you deploy now and are marked five weeks later, the site is live but
+   every account and shipment is gone.
+
+Neither applies to Vercel plus Neon, which is why the main instructions use those:
+Vercel's free tier does not sleep, and Neon's free database does not expire. If you
+prefer Render for the application itself, still put the database on Neon and paste that
+connection string into Render — that removes the second problem entirely.
+
+If you do deploy the database on Render, note that free Render Postgres has no backups
+and no managed connection pooling.
+
+**Before submitting, open your URL in a private browsing window** and walk through the
+registration and planning flow once. A private window proves the site works for someone
+who is not you and has no cookies.
+
+---
+
+## How it is built
+
+```
+BorderBridge/
+├── data/                  Regulatory knowledge base — JSON, not code
+│   ├── rules.json           Documents, duties, taxes, fees, thresholds
+│   ├── catalogue.json       Corridors, products with HS codes, exchange rates
+│   └── crossings.json       Border crossings and seed condition reports
+├── db/schema.sql          Tables for user-generated state
+├── render.yaml            Render deployment configuration (optional)
+├── scripts/migrate.mjs    Applies the schema
+├── src/lib/               Logic, no framework, no I/O where avoidable
+│   ├── types.ts             Every interface in the system
+│   ├── repository.ts        Reads the knowledge base
+│   ├── store.ts             Reads and writes user state
+│   ├── db.ts                Database connection
+│   ├── auth.ts              Hashing, codes, session signing, throttling
+│   ├── session.ts           Session cookie handling
+│   ├── engines.ts           Requirements and cost engines
+│   ├── border.ts            Crossing ranking and report decay
+│   └── shipments.ts         Readiness and milestone rules
+├── src/app/               Pages, server-rendered
+└── tests/                 87 tests
+```
+
+### Two decisions worth explaining
+
+**The regulatory knowledge base is data, not code.** Every rule in `data/rules.json`
+carries its governing instrument, its last-verified date and a verification status. A
+trained non-developer can amend a duty rate without touching TypeScript, which is SRS
+constraint C1 and NFR-MNT-03. It also lets the app be honest: a rule past its review
+interval causes every figure derived from it to be marked *pending re-verification*
+rather than presented as current.
+
+**The logic has no I/O.** `engines.ts`, `border.ts`, `shipments.ts` and `auth.ts` are
+pure functions. Pages fetch data and pass it in. That is why the test suite runs in
+three seconds with no database and no mocking framework.
+
+---
+
+## Requirements traceability
+
+Which SRS requirement each part of the code realises:
+
+| Requirement | Where |
+|---|---|
+| FR-ACC-01 register by phone | `store.ts registerUser`, `/register` |
+| FR-ACC-02 confirm by one-time code | `auth.ts` OTP functions, `store.ts issueOtp/consumeOtp`, `/verify` |
+| FR-ACC-03 authenticate, rate limit, progressive delay | `auth.ts throttle`, `store.ts authenticate`, `/login` |
+| FR-ACC-04 recover access | `store.ts resetPassword`, `/recover` |
+| FR-ACC-05 reusable profile | `store.ts updateProfile`, `/profile` |
+| FR-ACC-06 administrator verifies an account | `store.ts setAdminVerified`, `/admin` |
+| FR-REQ-01 state a trade intention | `/` |
+| FR-REQ-02 generate the checklist | `engines.ts generateChecklist` |
+| FR-REQ-03 simplified-regime ruling | `engines.ts determineEligibility` |
+| FR-CST-01 itemised landed cost | `engines.ts estimateCost` |
+| FR-CST-02 currency conversion | `engines.ts toUsd / fromUsd` |
+| FR-CST-03 per-line rule attribution | `engines.ts estimateCost`, `/plan` |
+| FR-CST-04 limitation statement | `/plan` |
+| FR-BRD-01 rank the crossings | `border.ts rankCrossings` |
+| FR-BRD-03 report conditions | `store.ts submitReport`, `/report` |
+| FR-BRD-05 decay stale reports | `border.ts reportWeight` |
+| FR-SHP-01 shipment with frozen plan | `store.ts createShipment` |
+| FR-SHP-02 milestones | `shipments.ts`, `/shipments/[id]` |
+| FR-ADM-04 flag rules due for review | `repository.ts isOverdue`, `/admin` |
+| NFR-ACC-01 citation at point of use | every checklist item and cost line |
+| NFR-ACC-02 mark unverified output | `/plan` amber banner |
+| NFR-USA-04 44 px touch targets | `globals.css`, `ui.tsx` |
+| NFR-PRF-01 works on a slow connection | server-rendered; forms work without JavaScript |
+
+Not yet implemented, and honest about it: FR-TRN (transport matching), FR-MKT
+(marketplace), FR-NOT (notifications), FR-ADM-01/02/03 (rule editing through the
+interface), FR-RPT (reporting dashboard), FR-LOC-01 (the language choice is stored but
+the interface is English only), FR-REQ-05 (PDF export).
+
+---
+
+## Testing
+
+```bash
+npm test
+```
+
+87 tests across six files:
+
+| File | Covers |
+|---|---|
+| `tests/engines.test.ts` | Eligibility at and across the USD 2,000 threshold, checklist assembly, duty and tax computation, currency conversion |
+| `tests/border.test.ts` | Report weight at 0, 6 and 12 hours, expiry at the boundary, ranking order, tie-breaks, product-class exclusion |
+| `tests/auth.test.ts` | Password hashing and salting, phone normalisation, one-time codes, session signing and tamper rejection, progressive delay |
+| `tests/shipments.test.ts` | Readiness, the blocking document, forward-only milestones |
+| `tests/schema.test.ts` | Applies `db/schema.sql` to real Postgres in-process and checks constraints and cascades |
+
+Type checking:
+
+```bash
+npx tsc --noEmit
+```
+
+---
+
+## Known limitations
+
+Stated plainly rather than hidden:
+
+1. **One-time codes are shown on screen, not sent by SMS.** An SMS gateway costs money
+   per message. The hashing, ten-minute expiry and single-use rules are real; only the
+   delivery is stubbed, and the interface says so where the code appears.
+2. **One corridor.** Rwanda → Uganda and the reverse. The architecture is
+   corridor-agnostic — adding Kenya means adding rows to `data/rules.json` — but only
+   the pilot corridor has been researched and cited.
+3. **Exchange rates are cached, not live.** `catalogue.json` holds a rate table with a
+   retrieval timestamp, and the interface shows its age.
+4. **Six of the eleven SRS modules are built.** The traceability table above says which.
+5. **Rules are edited in the JSON file, not through the admin interface.** Deliberate —
+   see constraint C1 — but it does mean rule changes require a redeploy.
+
+---
+
+## Troubleshooting
+
+**`DATABASE_URL is not set`** — You have not created `.env.local`, or it is in the wrong
+folder. It belongs in the project root, beside `package.json`. Re-read step 4.
+
+**`npm run db:migrate` hangs or times out** — Almost always the wrong connection
+string. On Neon use the **pooled** connection; on Supabase use the **transaction
+pooler** on port 6543. Check too that the string ends in `?sslmode=require`.
+
+**`password authentication failed`** — On Supabase, the connection string contains the
+literal text `[YOUR-PASSWORD]` until you replace it with your actual database password.
+
+**The site builds on Vercel but every page errors** — The environment variables were
+not set, or were set after the build. Add them under Settings → Environment Variables,
+then Deployments → ⋯ → **Redeploy**.
+
+**`Cannot find module '@/lib/...'`** — Run `npm install` again, and confirm
+`tsconfig.json` still contains the `paths` entry for `@/*`.
+
+**Port 3000 is already in use** — `npm run dev -- -p 3001`.
+
+---
+
+## Licence
+
+Coursework submission. The regulatory content is summarised from public instruments of
+the East African Community and the revenue authorities of Rwanda and Uganda, each cited
+at the point of use. It is guidance, not legal advice, and not a binding determination
+by any customs authority.
