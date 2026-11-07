@@ -4,14 +4,18 @@
  */
 import Link from 'next/link';
 import { buildTradePlan, fmtUsd, fmtLocal, UnsupportedCorridorError, UnknownProductError } from '@/lib/engines';
-import type { TradePlan } from '@/lib/types';
+import { recentReports } from '@/lib/store';
+import { isConfigured } from '@/lib/db';
+import { currentUser } from '@/lib/session';
+import { createShipmentAction } from '../actions';
+import type { BorderReport, TradePlan } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 type Search = { [k: string]: string | string[] | undefined };
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-export default function PlanPage({ searchParams }: { searchParams: Search }) {
+export default async function PlanPage({ searchParams }: { searchParams: Search }) {
   const corridorId = one(searchParams.corridor) ?? '';
   const productId = one(searchParams.product) ?? '';
   const quantity = Number(one(searchParams.quantity) ?? 0);
@@ -22,9 +26,14 @@ export default function PlanPage({ searchParams }: { searchParams: Search }) {
     return <Problem title="Something was missing" body="Please go back and complete every field." />;
   }
 
+  // FR-BRD-03 submissions feed the FR-BRD-01 ranking. Fetched here and passed in, so
+  // the engine itself stays free of I/O and unit testable.
+  const live: BorderReport[] = isConfigured() ? await recentReports() : [];
+  const user = await currentUser();
+
   let plan: TradePlan;
   try {
-    plan = buildTradePlan({ corridorId, productId, quantity, declaredValue, currency });
+    plan = buildTradePlan({ corridorId, productId, quantity, declaredValue, currency }, live);
   } catch (e) {
     if (e instanceof UnsupportedCorridorError) {
       return (
@@ -237,6 +246,43 @@ export default function PlanPage({ searchParams }: { searchParams: Search }) {
         <p className="mt-3 rounded-md border-l-4 border-brand bg-brand-pale p-3 text-xs leading-relaxed text-gray-700">
           This is an estimate, not a binding determination. Duties, taxes and fees are finally assessed
           by the customs authority at the border, which may reach a different figure.
+        </p>
+      </section>
+
+      {/* FR-SHP-01 — turn the plan into something trackable */}
+      <section className="border-t border-gray-200 pt-5">
+        <h2 className="text-base font-semibold text-ink">Ready to go ahead?</h2>
+        <p className="mt-1 text-sm text-gray-700">
+          Create a shipment and this plan is frozen as it stands. You can then tick off each document
+          as you obtain it, and track the consignment to delivery.
+        </p>
+        <form action={createShipmentAction} className="mt-3">
+          <input type="hidden" name="corridor" value={corridorId} />
+          <input type="hidden" name="product" value={productId} />
+          <input type="hidden" name="quantity" value={quantity} />
+          <input type="hidden" name="value" value={declaredValue} />
+          <input type="hidden" name="currency" value={currency} />
+          <input
+            type="hidden"
+            name="query"
+            value={`corridor=${corridorId}&product=${productId}&quantity=${quantity}&value=${declaredValue}&currency=${currency}`}
+          />
+          <button
+            type="submit"
+            className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-[#17395A]"
+          >
+            Create shipment from this plan
+          </button>
+        </form>
+        {!user && (
+          <p className="mt-2 text-xs text-gray-600">
+            You will be asked to sign in first, then brought straight back here.
+          </p>
+        )}
+        <p className="mt-3 text-center text-sm">
+          <Link href={`/report?crossingId=${cr.recommended?.crossing.id ?? ''}`} className="tappable font-medium text-brand underline">
+            At the border now? Report the queue
+          </Link>
         </p>
       </section>
     </div>
