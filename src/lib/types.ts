@@ -274,3 +274,92 @@ export interface ShipmentReadiness {
   readyToTravel: boolean;
   percentComplete: number;
 }
+
+// ---------------------------------------------------------------------------
+// Transport (FR-TRN-01, FR-TRN-02)
+// ---------------------------------------------------------------------------
+
+/** FR-TRN-01 — what a provider publishes about the service they offer. */
+export interface TransportOffering {
+  id: string;
+  providerId: string;
+  corridorId: string;
+  vehicleType: string;
+  capacityKg: number;
+  /** Product categories this vehicle is equipped to carry. */
+  productClasses: string[];
+  permits: string;
+  ratePerKg: number;
+  minimumCharge: number;
+  baseLocation: string;
+  notes: string;
+  active: boolean;
+  createdAt: string;
+}
+
+/** An offering with its provider's details and reputation attached. */
+export interface OfferingWithProvider extends TransportOffering {
+  providerName: string;
+  providerPhone: string;
+  providerBusiness: string | null;
+  verifiedByAdmin: boolean;
+  /** Null when the provider has not been rated yet — treated as unknown, not as zero. */
+  meanRating: number | null;
+  ratingCount: number;
+  completedJobs: number;
+}
+
+export type TransportRequestStatus = 'sent' | 'accepted' | 'declined' | 'withdrawn';
+
+export interface TransportRequest {
+  id: string;
+  shipmentId: string;
+  offeringId: string;
+  traderId: string;
+  providerId: string;
+  status: TransportRequestStatus;
+  quotedUsd: number;
+  message: string;
+  respondedAt: string | null;
+  createdAt: string;
+}
+
+/** A request joined to the things a page needs to display alongside it. */
+export interface RequestDetail extends TransportRequest {
+  providerName: string;
+  providerPhone: string;
+  traderName: string;
+  traderPhone: string;
+  vehicleType: string;
+  corridorId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+}
+
+/** One candidate in the FR-TRN-02 ranking. */
+export interface MatchedProvider {
+  offering: OfferingWithProvider;
+  quoteUsd: number;
+  /** Why this quote is what it is — minimum charge applied, or rate times weight. */
+  quoteBasis: string;
+  capacityHeadroomKg: number | null;
+}
+
+export interface TransportMatch {
+  matched: MatchedProvider[];
+  best: MatchedProvider | null;
+  /** Which criterion separated first place from second (FR-TRN-02). */
+  decidedBy: string;
+  excluded: { name: string; reason: string }[];
+}
+
+export interface ProviderRating {
+  id: string;
+  shipmentId: string;
+  providerId: string;
+  traderId: string;
+  stars: number;
+  comment: string;
+  createdAt: string;
+}
