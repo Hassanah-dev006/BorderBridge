@@ -2,6 +2,9 @@
 
 **Know what your consignment needs, and what it will cost, before you travel.**
 
+> **Try it: [border-bridge-sigma.vercel.app](https://border-bridge-sigma.vercel.app)** — no installation needed. Plan a
+> consignment without an account, or register to track shipments.
+
 A cross-border trade planning tool for small-scale traders on the Rwanda–Uganda
 corridor. A trader states what they are moving; BorderBridge works out which documents
 that specific consignment needs, what it should cost, which border crossing to use, and
@@ -10,7 +13,7 @@ why — citing the rule behind every answer.
 Built for the ALU BSc Software Engineering summative, implementing the requirements in
 *BorderBridge — Project Proposal and Software Requirements Specification*.
 
-- **Live application:** _add your Vercel URL here after deploying_
+- **Live application:** <https://border-bridge-sigma.vercel.app>
 - **SRS document:** _add your Google Drive link here_
 
 ---
@@ -194,7 +197,8 @@ npm start
 
 ## Try it — a walkthrough
 
-A five-minute path through every major feature:
+A five-minute path through every major feature. Follow it on the live site at
+<https://border-bridge-sigma.vercel.app>, or locally after the setup above — both behave identically:
 
 1. **Plan a trade without an account.** On the home page choose *Rwanda → Uganda*,
    *Coffee, green (unroasted)*, **200** kg, **1400** USD. Submit.
@@ -259,7 +263,7 @@ Sign out and back in. An **Admin** tab appears.
 
    Leave every other setting alone — Vercel detects Next.js by itself.
 5. Click **Deploy** and wait a couple of minutes.
-6. You will be given a URL such as `https://border-bridge.vercel.app`. That is the
+6. You will be given a URL. For this project it is <https://border-bridge-sigma.vercel.app>. That is the
    public address.
 
 If you created the database *after* deploying, run `npm run db:migrate` locally — it
