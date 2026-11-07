@@ -1,0 +1,34 @@
+# Render deployment configuration.
+#
+# Render reads this when you create a Blueprint from the repository, so you do not
+# have to type the build and start commands into the dashboard.
+#
+# Read the caveat in README under "Deploying on Render" before choosing the free
+# plan for a submission: free web services sleep after 15 minutes of inactivity, and
+# a free Render Postgres database expires 30 days after it is created.
+
+services:
+  - type: web
+    name: borderbridge
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+
+    # The home page does not query the database unless a session cookie is present,
+    # so this probe stays cheap — a health check that hits Postgres turns a slow
+    # database into a failed deploy.
+    healthCheckPath: /
+
+    envVars:
+      # Paste your Postgres connection string in the Render dashboard.
+      # sync: false means "ask me for this value", and keeps it out of the repository.
+      - key: DATABASE_URL
+        sync: false
+
+      # Render generates this once and keeps it. Changing it signs everyone out.
+      - key: SESSION_SECRET
+        generateValue: true
+
+      - key: NODE_VERSION
+        value: "20.18.1"
