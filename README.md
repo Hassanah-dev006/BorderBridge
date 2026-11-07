@@ -40,6 +40,7 @@ Built for the ALU BSc Software Engineering summative, implementing the requireme
 | **Border crossings** | A recommended crossing, ranked on official status, community-reported waiting time and road distance, which states which criterion decided it |
 | **Community reports** | Report the queue at a crossing; reports lose weight as they age and are discarded after twelve hours |
 | **Shipments** | Turn a plan into a trackable shipment whose plan is frozen, tick off documents as you obtain them, and record milestones to delivery |
+| **Transport** | Providers publish routes, capacity, permits and rates; traders see those who fit their consignment, ranked by verification, rating and price, and send a request the provider accepts or declines |
 | **Administration** | Verify provider accounts; see which regulatory rules are overdue for re-verification |
 
 The thing that makes it more than a reference site: it computes against **your**
@@ -161,7 +162,7 @@ Safe to re-run at any time — every statement is guarded with `IF NOT EXISTS`.
 npm test
 ```
 
-Expect **87 tests passing, 0 failing**. These need no database: the schema tests run
+Expect **112 tests passing, 0 failing**. These need no database: the schema tests run
 Postgres in-process through PGlite.
 
 ---
@@ -218,8 +219,15 @@ A five-minute path through every major feature:
 7. **Report the queue.** Go to *Border reports*, submit a report for Gatuna with a long
    wait. Plan the same trade again — the recommendation changes, and the page cites
    your report.
-8. **Sign out and back in.** Then deliberately get the password wrong three times to
-   see the progressive delay, and five times to see the lockout.
+8. **Arrange transport.** Register a second account as a *transport provider*, publish
+   an offering on Rwanda → Uganda, then sign back in as the trader, open the shipment
+   and choose *Find transport*. The provider appears with a quote computed from their
+   published rate. Send a request; as the provider, accept it. Contact details are
+   exchanged only at that point.
+9. **Rate them.** Mark the shipment delivered, then rate the provider. The rating
+   feeds straight back into the ranking for the next trader.
+10. **Sign out and back in.** Then deliberately get the password wrong three times to
+    see the progressive delay, and five times to see the lockout.
 
 ### Seeing the administrator view
 
@@ -309,6 +317,7 @@ BorderBridge/
 │   ├── session.ts           Session cookie handling
 │   ├── engines.ts           Requirements and cost engines
 │   ├── border.ts            Crossing ranking and report decay
+│   ├── transport.ts         Provider matching and ranking
 │   └── shipments.ts         Readiness and milestone rules
 ├── src/app/               Pages, server-rendered
 └── tests/                 87 tests
@@ -353,16 +362,18 @@ Which SRS requirement each part of the code realises:
 | FR-BRD-05 decay stale reports | `border.ts reportWeight` |
 | FR-SHP-01 shipment with frozen plan | `store.ts createShipment` |
 | FR-SHP-02 milestones | `shipments.ts`, `/shipments/[id]` |
+| FR-TRN-01 provider publishes their offering | `store.ts upsertOffering`, `/provider` |
+| FR-TRN-02 match and rank providers for a shipment | `transport.ts matchProviders`, `/shipments/[id]/transport` |
 | FR-ADM-04 flag rules due for review | `repository.ts isOverdue`, `/admin` |
 | NFR-ACC-01 citation at point of use | every checklist item and cost line |
 | NFR-ACC-02 mark unverified output | `/plan` amber banner |
 | NFR-USA-04 44 px touch targets | `globals.css`, `ui.tsx` |
 | NFR-PRF-01 works on a slow connection | server-rendered; forms work without JavaScript |
 
-Not yet implemented, and honest about it: FR-TRN (transport matching), FR-MKT
-(marketplace), FR-NOT (notifications), FR-ADM-01/02/03 (rule editing through the
-interface), FR-RPT (reporting dashboard), FR-LOC-01 (the language choice is stored but
-the interface is English only), FR-REQ-05 (PDF export).
+Not yet implemented, and honest about it: FR-MKT (marketplace), FR-NOT
+(notifications), FR-ADM-01/02/03 (rule editing through the interface), FR-RPT
+(reporting dashboard), FR-LOC-01 (the language choice is stored but the interface is
+English only), FR-REQ-05 (PDF export).
 
 ---
 
@@ -372,7 +383,7 @@ the interface is English only), FR-REQ-05 (PDF export).
 npm test
 ```
 
-87 tests across six files:
+112 tests across seven files:
 
 | File | Covers |
 |---|---|
@@ -380,6 +391,7 @@ npm test
 | `tests/border.test.ts` | Report weight at 0, 6 and 12 hours, expiry at the boundary, ranking order, tie-breaks, product-class exclusion |
 | `tests/auth.test.ts` | Password hashing and salting, phone normalisation, one-time codes, session signing and tamper rejection, progressive delay |
 | `tests/shipments.test.ts` | Readiness, the blocking document, forward-only milestones |
+| `tests/transport.test.ts` | Quoting and minimum charges, capacity fit, exclusion by route and product class, and the verification → rating → price ranking |
 | `tests/schema.test.ts` | Applies `db/schema.sql` to real Postgres in-process and checks constraints and cascades |
 
 Type checking:
@@ -402,7 +414,7 @@ Stated plainly rather than hidden:
    the pilot corridor has been researched and cited.
 3. **Exchange rates are cached, not live.** `catalogue.json` holds a rate table with a
    retrieval timestamp, and the interface shows its age.
-4. **Six of the eleven SRS modules are built.** The traceability table above says which.
+4. **Seven of the eleven SRS modules are built.** The traceability table above says which.
 5. **Rules are edited in the JSON file, not through the admin interface.** Deliberate —
    see constraint C1 — but it does mean rule changes require a redeploy.
 
