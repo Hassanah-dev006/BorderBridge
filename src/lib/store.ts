@@ -13,8 +13,9 @@ import {
   newId, sessionExpiry, normalisePhone, throttle, LOCKOUT_THRESHOLD,
 } from './auth';
 import type {
-  BorderReport, Language, Milestone, Session, Shipment, ShipmentStatus,
-  ThrottleState, TradePlan, User, UserRole,
+  BorderReport, Language, Milestone, OfferingWithProvider, ProviderRating,
+  RequestDetail, Session, Shipment, ShipmentStatus, ThrottleState, TradePlan,
+  TransportRequestStatus, User, UserRole,
 } from './types';
 
 // --- row mapping -----------------------------------------------------------
@@ -377,4 +378,274 @@ export async function countReportsByUser(userId: string): Promise<number> {
   const sql = db();
   const rows = await sql`SELECT COUNT(*)::int AS n FROM border_reports WHERE user_id = ${userId}`;
   return rows[0]?.n ?? 0;
+}
+
+// --- transport offerings (FR-TRN-01) ---------------------------------------
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function toOffering(r: any): OfferingWithProvider {
+  return {
+    id: r.id,
+    providerId: r.provider_id,
+    corridorId: r.corridor_id,
+    vehicleType: r.vehicle_type,
+    capacityKg: Number(r.capacity_kg),
+    productClasses: (r.product_classes ?? []) as string[],
+    permits: r.permits,
+    ratePerKg: Number(r.rate_per_kg),
+    minimumCharge: Number(r.minimum_charge),
+    baseLocation: r.base_location,
+    notes: r.notes,
+    active: r.active,
+    createdAt: new Date(r.created_at).toISOString(),
+    providerName: r.provider_name ?? '',
+    providerPhone: r.provider_phone ?? '',
+    providerBusiness: r.provider_business ?? null,
+    verifiedByAdmin: r.verified_by_admin ?? false,
+    meanRating: r.mean_rating === null || r.mean_rating === undefined ? null : Number(r.mean_rating),
+    ratingCount: Number(r.rating_count ?? 0),
+    completedJobs: Number(r.completed_jobs ?? 0),
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
+ * Offerings with their provider's details and reputation already joined.
+ *
+ * The rating is computed here rather than stored on the offering, so it can never
+ * drift out of step with the ratings table.
+ */
+const OFFERING_SELECT = `
+  SELECT o.*,
+         u.display_name AS provider_name,
+         u.phone AS provider_phone,
+         u.business_name AS provider_business,
+         u.verified_by_admin,
+         r.mean_rating,
+         COALESCE(r.rating_count, 0) AS rating_count,
+         COALESCE(j.completed_jobs, 0) AS completed_jobs
+  FROM transport_offerings o
+  JOIN users u ON u.id = o.provider_id
+  LEFT JOIN (
+    SELECT provider_id, AVG(stars)::numeric(3,2) AS mean_rating, COUNT(*) AS rating_count
+    FROM provider_ratings GROUP BY provider_id
+  ) r ON r.provider_id = o.provider_id
+  LEFT JOIN (
+    SELECT provider_id, COUNT(*) AS completed_jobs
+    FROM transport_requests WHERE status = 'accepted' GROUP BY provider_id
+  ) j ON j.provider_id = o.provider_id
+`;
+
+export async function listOfferingsForCorridor(corridorId: string): Promise<OfferingWithProvider[]> {
+  const sql = db();
+  const rows = await sql.unsafe(`${OFFERING_SELECT} WHERE o.corridor_id = $1 AND o.active = TRUE`, [corridorId]);
+  return rows.map(toOffering);
+}
+
+/** Every offering, used where the exclusion list should explain near-misses too. */
+export async function listAllOfferings(): Promise<OfferingWithProvider[]> {
+  const sql = db();
+  const rows = await sql.unsafe(OFFERING_SELECT);
+  return rows.map(toOffering);
+}
+
+export async function listProviderOfferings(providerId: string): Promise<OfferingWithProvider[]> {
+  const sql = db();
+  const rows = await sql.unsafe(`${OFFERING_SELECT} WHERE o.provider_id = $1 ORDER BY o.created_at`, [providerId]);
+  return rows.map(toOffering);
+}
+
+export async function getOffering(id: string): Promise<OfferingWithProvider | null> {
+  const sql = db();
+  const rows = await sql.unsafe(`${OFFERING_SELECT} WHERE o.id = $1`, [id]);
+  return rows[0] ? toOffering(rows[0]) : null;
+}
+
+/** FR-TRN-01 — publish or amend what this provider offers on a corridor. */
+export async function upsertOffering(providerId: string, input: {
+  corridorId: string; vehicleType: string; capacityKg: number; productClasses: string[];
+  permits: string; ratePerKg: number; minimumCharge: number; baseLocation: string;
+  notes: string; active: boolean;
+}): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO transport_offerings (
+      id, provider_id, corridor_id, vehicle_type, capacity_kg, product_classes,
+      permits, rate_per_kg, minimum_charge, base_location, notes, active
+    ) VALUES (
+      ${newId()}, ${providerId}, ${input.corridorId}, ${input.vehicleType},
+      ${Math.round(input.capacityKg)}, ${input.productClasses}, ${input.permits.trim()},
+      ${input.ratePerKg}, ${input.minimumCharge}, ${input.baseLocation.trim()},
+      ${input.notes.trim()}, ${input.active}
+    )
+    ON CONFLICT (provider_id, corridor_id) DO UPDATE SET
+      vehicle_type = EXCLUDED.vehicle_type,
+      capacity_kg = EXCLUDED.capacity_kg,
+      product_classes = EXCLUDED.product_classes,
+      permits = EXCLUDED.permits,
+      rate_per_kg = EXCLUDED.rate_per_kg,
+      minimum_charge = EXCLUDED.minimum_charge,
+      base_location = EXCLUDED.base_location,
+      notes = EXCLUDED.notes,
+      active = EXCLUDED.active
+  `;
+}
+
+export async function setOfferingActive(offeringId: string, providerId: string, active: boolean): Promise<void> {
+  const sql = db();
+  await sql`
+    UPDATE transport_offerings SET active = ${active}
+    WHERE id = ${offeringId} AND provider_id = ${providerId}
+  `;
+}
+
+// --- transport requests (FR-TRN-02) ----------------------------------------
+
+export class AlreadyRequestedError extends Error {}
+
+export async function sendTransportRequest(input: {
+  shipmentId: string; offeringId: string; traderId: string; providerId: string;
+  quotedUsd: number; message: string;
+}): Promise<void> {
+  const sql = db();
+  const existing = await sql`
+    SELECT id FROM transport_requests
+    WHERE shipment_id = ${input.shipmentId} AND offering_id = ${input.offeringId} LIMIT 1
+  `;
+  if (existing.length > 0) throw new AlreadyRequestedError();
+
+  await sql`
+    INSERT INTO transport_requests (id, shipment_id, offering_id, trader_id, provider_id, quoted_usd, message)
+    VALUES (${newId()}, ${input.shipmentId}, ${input.offeringId}, ${input.traderId},
+            ${input.providerId}, ${input.quotedUsd}, ${input.message.trim().slice(0, 400)})
+  `;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function toRequestDetail(r: any): RequestDetail {
+  return {
+    id: r.id,
+    shipmentId: r.shipment_id,
+    offeringId: r.offering_id,
+    traderId: r.trader_id,
+    providerId: r.provider_id,
+    status: r.status as TransportRequestStatus,
+    quotedUsd: Number(r.quoted_usd),
+    message: r.message,
+    respondedAt: r.responded_at ? new Date(r.responded_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString(),
+    providerName: r.provider_name ?? '',
+    providerPhone: r.provider_phone ?? '',
+    traderName: r.trader_name ?? '',
+    traderPhone: r.trader_phone ?? '',
+    vehicleType: r.vehicle_type ?? '',
+    corridorId: r.corridor_id ?? '',
+    productName: r.product_name ?? '',
+    quantity: Number(r.quantity ?? 0),
+    unit: r.unit ?? '',
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const REQUEST_SELECT = `
+  SELECT q.*,
+         p.display_name AS provider_name, p.phone AS provider_phone,
+         t.display_name AS trader_name, t.phone AS trader_phone,
+         o.vehicle_type, o.corridor_id,
+         s.plan_snapshot -> 'product' ->> 'name' AS product_name,
+         s.plan_snapshot -> 'product' ->> 'unit' AS unit,
+         s.quantity
+  FROM transport_requests q
+  JOIN users p ON p.id = q.provider_id
+  JOIN users t ON t.id = q.trader_id
+  JOIN transport_offerings o ON o.id = q.offering_id
+  JOIN shipments s ON s.id = q.shipment_id
+`;
+
+export async function listRequestsForShipment(shipmentId: string): Promise<RequestDetail[]> {
+  const sql = db();
+  const rows = await sql.unsafe(`${REQUEST_SELECT} WHERE q.shipment_id = $1 ORDER BY q.created_at DESC`, [shipmentId]);
+  return rows.map(toRequestDetail);
+}
+
+export async function listRequestsForProvider(providerId: string): Promise<RequestDetail[]> {
+  const sql = db();
+  const rows = await sql.unsafe(`${REQUEST_SELECT} WHERE q.provider_id = $1 ORDER BY q.created_at DESC`, [providerId]);
+  return rows.map(toRequestDetail);
+}
+
+export async function getRequest(id: string): Promise<RequestDetail | null> {
+  const sql = db();
+  const rows = await sql.unsafe(`${REQUEST_SELECT} WHERE q.id = $1`, [id]);
+  return rows[0] ? toRequestDetail(rows[0]) : null;
+}
+
+/**
+ * The provider's answer. Accepting one request withdraws the trader's other
+ * outstanding requests for that shipment — they only need one carrier, and leaving
+ * stale requests open wastes other providers' attention.
+ */
+export async function respondToRequest(
+  requestId: string, providerId: string, status: 'accepted' | 'declined',
+): Promise<void> {
+  const sql = db();
+  const rows = await sql`
+    UPDATE transport_requests SET status = ${status}, responded_at = NOW()
+    WHERE id = ${requestId} AND provider_id = ${providerId} AND status = 'sent'
+    RETURNING shipment_id
+  `;
+  if (rows.length === 0 || status !== 'accepted') return;
+
+  await sql`
+    UPDATE transport_requests SET status = 'withdrawn', responded_at = NOW()
+    WHERE shipment_id = ${rows[0].shipment_id} AND id <> ${requestId} AND status = 'sent'
+  `;
+}
+
+export async function withdrawRequest(requestId: string, traderId: string): Promise<void> {
+  const sql = db();
+  await sql`
+    UPDATE transport_requests SET status = 'withdrawn', responded_at = NOW()
+    WHERE id = ${requestId} AND trader_id = ${traderId} AND status = 'sent'
+  `;
+}
+
+/** The accepted carrier for a shipment, if one has accepted. */
+export async function acceptedCarrier(shipmentId: string): Promise<RequestDetail | null> {
+  const sql = db();
+  const rows = await sql.unsafe(
+    `${REQUEST_SELECT} WHERE q.shipment_id = $1 AND q.status = 'accepted' LIMIT 1`, [shipmentId],
+  );
+  return rows[0] ? toRequestDetail(rows[0]) : null;
+}
+
+// --- provider ratings ------------------------------------------------------
+
+export async function rateProvider(input: {
+  shipmentId: string; providerId: string; traderId: string; stars: number; comment: string;
+}): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO provider_ratings (id, shipment_id, provider_id, trader_id, stars, comment)
+    VALUES (${newId()}, ${input.shipmentId}, ${input.providerId}, ${input.traderId},
+            ${Math.round(input.stars)}, ${input.comment.trim().slice(0, 400)})
+    ON CONFLICT (shipment_id) DO UPDATE SET
+      stars = EXCLUDED.stars, comment = EXCLUDED.comment, created_at = NOW()
+  `;
+}
+
+export async function getRating(shipmentId: string): Promise<ProviderRating | null> {
+  const sql = db();
+  const rows = await sql`SELECT * FROM provider_ratings WHERE shipment_id = ${shipmentId} LIMIT 1`;
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: r.id,
+    shipmentId: r.shipment_id,
+    providerId: r.provider_id,
+    traderId: r.trader_id,
+    stars: Number(r.stars),
+    comment: r.comment,
+    createdAt: new Date(r.created_at).toISOString(),
+  };
 }
