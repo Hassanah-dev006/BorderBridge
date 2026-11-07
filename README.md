@@ -235,15 +235,27 @@ A five-minute path through every major feature. Follow it on the live site at
 
 ### Seeing the administrator view
 
-There is no self-service route to the admin role, by design. To promote your own
-account, run this against your database — the SQL editor in the Neon or Supabase
-dashboard will do:
+There is no self-service route to the admin role, by design — FR-ACC-06 has
+administrators verifying other people's accounts, so it cannot be a role anyone awards
+themselves. Register normally, then promote that account from your terminal:
 
-```sql
-UPDATE users SET role = 'admin' WHERE phone = '+250788123456';
+```bash
+npm run db:admin -- 0788123456
 ```
 
-Sign out and back in. An **Admin** tab appears.
+Use the number you registered with. It prints the account it changed, or lists the
+registered numbers if it cannot find yours. Sign out and back in, and an **Admin** tab
+appears.
+
+The same script changes any role, which is useful for testing:
+
+```bash
+npm run db:admin -- 0788123456 provider   # make an account a transport provider
+npm run db:admin -- 0788123456 trader     # put it back
+```
+
+It runs against whatever `DATABASE_URL` points at, so from your own machine it will
+promote the account on the deployed site.
 
 ---
 
