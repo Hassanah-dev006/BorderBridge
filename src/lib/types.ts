@@ -188,3 +188,89 @@ export interface CrossingRanking {
   excluded: { name: string; reason: string }[];
   windowHours: number;
 }
+
+// ---------------------------------------------------------------------------
+// Accounts (FR-ACC-01 … FR-ACC-06)
+// ---------------------------------------------------------------------------
+
+export type UserRole = 'trader' | 'provider' | 'admin';
+export type Language = 'en' | 'fr' | 'sw' | 'rw';
+
+export interface User {
+  id: string;
+  /** FR-ACC-01 — the phone number is the primary identifier, not an email address. */
+  phone: string;
+  displayName: string;
+  role: UserRole;
+  preferredLanguage: Language;
+  /** Null until the one-time code has been confirmed (FR-ACC-02). */
+  phoneVerifiedAt: string | null;
+  /** FR-ACC-06 — set by an administrator for providers and buyers. */
+  verifiedByAdmin: boolean;
+  businessName: string | null;
+  homeCorridorId: string | null;
+  principalProducts: string | null;
+  createdAt: string;
+}
+
+export interface Session {
+  id: string;
+  userId: string;
+  expiresAt: string;
+}
+
+/** What the rate limiter decided about the next login attempt (FR-ACC-03). */
+export interface ThrottleState {
+  allowed: boolean;
+  failedAttempts: number;
+  waitSeconds: number;
+  message: string;
+}
+
+// ---------------------------------------------------------------------------
+// Shipments (FR-SHP-01, FR-SHP-02)
+// ---------------------------------------------------------------------------
+
+export const SHIPMENT_STATUSES = [
+  'planned',
+  'documents-ready',
+  'in-transit',
+  'at-border',
+  'cleared',
+  'delivered',
+] as const;
+
+export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number] | 'cancelled';
+
+export interface Shipment {
+  id: string;
+  userId: string;
+  corridorId: string;
+  productId: string;
+  quantity: number;
+  declaredValue: number;
+  currency: string;
+  /** FR-SHP-01 — the plan exactly as it stood when the shipment was created. Never recomputed. */
+  planSnapshot: TradePlan;
+  status: ShipmentStatus;
+  createdAt: string;
+}
+
+export interface Milestone {
+  id: string;
+  shipmentId: string;
+  status: ShipmentStatus;
+  note: string;
+  recordedAt: string;
+}
+
+/** Readiness derived from the frozen checklist and what has been ticked off. */
+export interface ShipmentReadiness {
+  obtained: string[];
+  outstanding: ChecklistItem[];
+  mandatoryOutstanding: ChecklistItem[];
+  /** The next mandatory document standing between the trader and departure. */
+  blockingItem: ChecklistItem | null;
+  readyToTravel: boolean;
+  percentComplete: number;
+}
