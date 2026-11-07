@@ -9,10 +9,10 @@
  */
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { toggleChecklistAction, advanceShipmentAction } from '../../actions';
+import { toggleChecklistAction, advanceShipmentAction, rateProviderAction } from '../../actions';
 import { Notice, PageTitle, StatusPill } from '../../ui';
 import { requireUser } from '@/lib/session';
-import { getShipment, listObtained, listMilestones } from '@/lib/store';
+import { getShipment, listObtained, listMilestones, acceptedCarrier, getRating } from '@/lib/store';
 import {
   readiness, allowedNextStatuses, STATUS_LABELS, STATUS_HINTS, shortReference, statusIndex,
 } from '@/lib/shipments';
@@ -25,15 +25,17 @@ export default async function ShipmentPage({
   params, searchParams,
 }: {
   params: { id: string };
-  searchParams: { created?: string; error?: string };
+  searchParams: { created?: string; error?: string; rated?: string };
 }) {
   const user = await requireUser(`/shipments/${params.id}`);
   const shipment = await getShipment(params.id);
   if (!shipment || shipment.userId !== user.id) notFound();
 
-  const [obtained, milestones] = await Promise.all([
+  const [obtained, milestones, carrier, rating] = await Promise.all([
     listObtained(shipment.id),
     listMilestones(shipment.id),
+    acceptedCarrier(shipment.id),
+    getRating(shipment.id),
   ]);
   const r = readiness(shipment, obtained);
   const next = allowedNextStatuses(shipment.status, r.readyToTravel);
@@ -54,6 +56,7 @@ export default async function ShipmentPage({
           it will not change even if the underlying rules are amended.
         </Notice>
       )}
+      {searchParams.rated && <Notice kind="ok">Thank you — your rating helps other traders choose.</Notice>}
       {searchParams.error && <Notice kind="error">{searchParams.error}</Notice>}
 
       {/* FR-SHP-02 — milestone trail */}
@@ -169,6 +172,85 @@ export default async function ShipmentPage({
             );
           })}
         </ul>
+      </section>
+
+      {/* FR-TRN-02 — transport for this shipment */}
+      <section className="border-t border-gray-200 pt-5">
+        <h2 className="text-base font-semibold text-ink">Transport</h2>
+
+        {carrier ? (
+          <div className="mt-3 rounded-md border border-green-300 bg-green-50 p-3">
+            <p className="font-medium text-green-900">{carrier.providerName}</p>
+            <p className="text-sm text-gray-700">
+              {carrier.vehicleType} · {fmtUsd(carrier.quotedUsd)} · accepted{' '}
+              {carrier.respondedAt ? new Date(carrier.respondedAt).toLocaleDateString('en-GB') : ''}
+            </p>
+            <p className="mt-1 text-sm text-gray-700">
+              Contact:{' '}
+              <a href={`tel:${carrier.providerPhone}`} className="tappable font-medium text-brand underline">
+                {carrier.providerPhone}
+              </a>
+            </p>
+          </div>
+        ) : (
+          <>
+            <p className="mt-1 text-sm text-gray-700">
+              Find a provider who carries this class of goods on this route, ranked by
+              verification, rating and price.
+            </p>
+            <Link
+              href={`/shipments/${shipment.id}/transport`}
+              className="tappable mt-3 flex items-center justify-center rounded-md border border-brand bg-white px-4 py-3 text-base font-semibold text-brand"
+            >
+              Find transport
+            </Link>
+          </>
+        )}
+
+        {/* Rating, once the goods have actually arrived */}
+        {carrier && shipment.status === 'delivered' && (
+          <div className="mt-4">
+            {rating ? (
+              <div className="rounded-md border border-gray-200 bg-white p-3">
+                <p className="text-sm font-medium text-ink">You rated {carrier.providerName} {rating.stars} out of 5</p>
+                {rating.comment && <p className="mt-1 text-sm text-gray-700">{rating.comment}</p>}
+                <p className="mt-1 text-xs text-gray-500">Submit again below to change it.</p>
+              </div>
+            ) : (
+              <p className="text-sm font-medium text-ink">How did {carrier.providerName} do?</p>
+            )}
+
+            <form action={rateProviderAction} className="mt-2 space-y-2">
+              <input type="hidden" name="shipmentId" value={shipment.id} />
+              <label htmlFor="stars" className="block text-sm text-gray-700">Rating</label>
+              <select
+                id="stars" name="stars" defaultValue={String(rating?.stars ?? 5)}
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base"
+              >
+                <option value="5">5 — excellent</option>
+                <option value="4">4 — good</option>
+                <option value="3">3 — acceptable</option>
+                <option value="2">2 — poor</option>
+                <option value="1">1 — bad</option>
+              </select>
+              <input
+                name="comment" defaultValue={rating?.comment ?? ''}
+                placeholder="Anything other traders should know (optional)"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-[#17395A]"
+              >
+                {rating ? 'Update rating' : 'Submit rating'}
+              </button>
+            </form>
+            <p className="mt-1 text-xs text-gray-500">
+              Only a trader whose shipment was delivered can rate, so every rating
+              corresponds to a movement that actually happened.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* The frozen plan, for reference */}
