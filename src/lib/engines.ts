@@ -1,9 +1,20 @@
+/**
+ * Requirements engine and cost engine.
+ *
+ * Realises SRS FR-REQ-02 (checklist generation), FR-REQ-03 (simplified-regime
+ * eligibility), FR-CST-01 (landed cost), FR-CST-02 (currency conversion) and
+ * FR-CST-03 (per-line rule attribution).
+ *
+ * These functions are pure: they take an intention and the rule set and return a
+ * result. No I/O, no framework. That is what makes them unit-testable to the 80%
+ * statement coverage required by NFR-MNT-01.
+ */
 import {
   getCorridor, getProduct, getRulesForCorridor, getExchangeRates, isOverdue,
 } from './repository';
-import { rankCrossings } from './border';
+import { rankCrossings, allReports } from './border';
 import type {
-  ChecklistItem, CostEstimate, CostLine, CrossingRanking, EligibilityResult,
+  BorderReport, ChecklistItem, CostEstimate, CostLine, CrossingRanking, EligibilityResult,
   RegulatoryRule, RuleScope, TradeIntention, TradePlan,
 } from './types';
 
@@ -208,8 +219,14 @@ export function estimateCost(intention: TradeIntention, strEligible: boolean): C
   };
 }
 
-/** Orchestrates the full plan — the scenario modelled in SRS Figure B.3. */
-export function buildTradePlan(intention: TradeIntention): TradePlan {
+/**
+ * Orchestrates the full plan — the scenario modelled in SRS Figure B.3.
+ *
+ * `liveReports` carries community reports submitted through FR-BRD-03. They are passed
+ * in rather than read here, because this module stays free of I/O: the page fetches
+ * them and hands them over, which keeps every function in this file unit testable.
+ */
+export function buildTradePlan(intention: TradeIntention, liveReports: BorderReport[] = []): TradePlan {
   const corridor = getCorridor(intention.corridorId);
   if (!corridor || !corridor.isSupported) throw new UnsupportedCorridorError(intention.corridorId);
   const product = getProduct(intention.productId);
@@ -224,7 +241,9 @@ export function buildTradePlan(intention: TradeIntention): TradePlan {
     cost.lines.some((l) => l.verificationStatus === 'needs-verification');
 
   // FR-BRD-01 — rank the crossings rather than taking a configured default.
-  const crossingRanking: CrossingRanking = rankCrossings(intention.corridorId, product.category);
+  const crossingRanking: CrossingRanking = rankCrossings(
+    intention.corridorId, product.category, new Date(), allReports(liveReports),
+  );
 
   return {
     corridor,
