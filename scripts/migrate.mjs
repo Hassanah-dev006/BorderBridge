@@ -34,7 +34,16 @@ function loadEnv() {
 
 loadEnv();
 
-if (!process.env.DATABASE_URL) {
+/**
+ * Prefer the direct (unpooled) connection for schema changes.
+ *
+ * Neon's pooled endpoint and Supabase's pgBouncer run in transaction mode, which can
+ * mishandle DDL. The application uses the pooled string; migrations use this one when
+ * it is set, and fall back to DATABASE_URL when it is not.
+ */
+const MIGRATION_URL = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+
+if (!MIGRATION_URL) {
   console.error(
     '\n  DATABASE_URL is not set.\n\n' +
       '  1. Copy .env.example to .env.local\n' +
@@ -45,7 +54,13 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = postgres(process.env.DATABASE_URL, { max: 1, prepare: false, ssl: 'require', onnotice: () => {} });
+const sql = postgres(MIGRATION_URL, { max: 1, prepare: false, ssl: 'require', onnotice: () => {} });
+
+console.log(
+  process.env.DATABASE_URL_UNPOOLED
+    ? 'Using DATABASE_URL_UNPOOLED (direct connection).'
+    : 'Using DATABASE_URL. If this hangs, set DATABASE_URL_UNPOOLED to the direct string.',
+);
 
 try {
   console.log('Applying db/schema.sql ...');
