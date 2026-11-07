@@ -1,3 +1,7 @@
+/**
+ * Unit tests for the requirements and cost engines.
+ * Run with: npm test
+ */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
