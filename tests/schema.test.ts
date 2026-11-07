@@ -127,6 +127,68 @@ describe('constraints', () => {
     assert.equal(r.rows[0].user_id, null, 'the report should be anonymised, not removed');
   });
 
+  test('a provider publishes one offering per route (FR-TRN-01)', async () => {
+    await db.query(
+      `INSERT INTO users (id, phone, display_name, password_hash, role)
+       VALUES ('u-prov', '+250788000010', 'Carrier', 'salt:hash', 'provider')`,
+    );
+    await db.query(
+      `INSERT INTO transport_offerings (id, provider_id, corridor_id, vehicle_type, capacity_kg, rate_per_kg)
+       VALUES ('o-1', 'u-prov', 'RW-UG', 'Pickup', 1000, 0.9)`,
+    );
+    await refuses(
+      `INSERT INTO transport_offerings (id, provider_id, corridor_id, vehicle_type, capacity_kg, rate_per_kg)
+       VALUES ('o-2', 'u-prov', 'RW-UG', 'Truck', 8000, 0.6)`,
+      'a second offering on the same route',
+    );
+    // A different route is fine.
+    await db.query(
+      `INSERT INTO transport_offerings (id, provider_id, corridor_id, vehicle_type, capacity_kg, rate_per_kg)
+       VALUES ('o-3', 'u-prov', 'UG-RW', 'Truck', 8000, 0.6)`,
+    );
+  });
+
+  test('a trader cannot send the same provider two requests for one shipment', async () => {
+    await db.query(
+      `INSERT INTO shipments (id, user_id, corridor_id, product_id, quantity, declared_value, currency, plan_snapshot)
+       VALUES ('s-trn', 'u-owner', 'RW-UG', 'coffee-green', 200, 1200, 'USD', '{"checklist":[]}')`,
+    );
+    await db.query(
+      `INSERT INTO transport_requests (id, shipment_id, offering_id, trader_id, provider_id, quoted_usd)
+       VALUES ('q-1', 's-trn', 'o-1', 'u-owner', 'u-prov', 180)`,
+    );
+    await refuses(
+      `INSERT INTO transport_requests (id, shipment_id, offering_id, trader_id, provider_id, quoted_usd)
+       VALUES ('q-2', 's-trn', 'o-1', 'u-owner', 'u-prov', 180)`,
+      'a duplicate request',
+    );
+  });
+
+  test('a request status is restricted to the four the system defines', async () => {
+    await refuses(
+      `INSERT INTO transport_requests (id, shipment_id, offering_id, trader_id, provider_id, quoted_usd, status)
+       VALUES ('q-bad', 's-trn', 'o-3', 'u-owner', 'u-prov', 180, 'maybe')`,
+      'an invented request status',
+    );
+  });
+
+  test('a rating must be between one and five, once per shipment', async () => {
+    await refuses(
+      `INSERT INTO provider_ratings (id, shipment_id, provider_id, trader_id, stars)
+       VALUES ('g-bad', 's-trn', 'u-prov', 'u-owner', 6)`,
+      'six stars',
+    );
+    await db.query(
+      `INSERT INTO provider_ratings (id, shipment_id, provider_id, trader_id, stars)
+       VALUES ('g-1', 's-trn', 'u-prov', 'u-owner', 5)`,
+    );
+    await refuses(
+      `INSERT INTO provider_ratings (id, shipment_id, provider_id, trader_id, stars)
+       VALUES ('g-2', 's-trn', 'u-prov', 'u-owner', 1)`,
+      'a second rating for the same shipment',
+    );
+  });
+
   test('the plan snapshot round-trips as JSON (FR-SHP-01)', async () => {
     const plan = { recommendedCrossing: 'Gatuna / Katuna', cost: { totalUsd: 1234.56 }, checklist: [{ ruleId: 'X' }] };
     await db.query(
