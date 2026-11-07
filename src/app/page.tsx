@@ -1,12 +1,27 @@
+/**
+ * FR-REQ-01 — state a trade intention.
+ *
+ * One question, four fields. The interface is organised around the consignment, not
+ * around a menu of features (SRS UI-01).
+ */
+import Link from 'next/link';
 import { listSupportedCorridors, listProducts } from '@/lib/repository';
+import { currentUser } from '@/lib/session';
 
-export default function Home() {
+export const dynamic = 'force-dynamic';
+
+export default async function Home() {
   const corridors = listSupportedCorridors();
   const products = listProducts();
+  // FR-ACC-05 — a returning trader's stated route is pre-selected, so they answer less.
+  const user = await currentUser();
+  const defaultCorridor = user?.homeCorridorId ?? 'RW-UG';
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-ink">What are you moving?</h1>
+      <h1 className="text-xl font-semibold text-ink">
+        {user ? `What are you moving, ${user.displayName.split(' ')[0]}?` : 'What are you moving?'}
+      </h1>
       <p className="mt-1 text-sm text-gray-600">
         Tell us the route, the goods and the value. We will tell you which documents you need,
         what it should cost, and which crossing to use.
@@ -16,7 +31,7 @@ export default function Home() {
         <div>
           <label htmlFor="corridor" className="block text-sm font-medium text-ink">Route</label>
           <select
-            id="corridor" name="corridor" required defaultValue="RW-UG"
+            id="corridor" name="corridor" required defaultValue={defaultCorridor}
             className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base"
           >
             {corridors.map((c) => (
@@ -73,6 +88,13 @@ export default function Home() {
           Show me what I need
         </button>
       </form>
+
+      {!user && (
+        <p className="mt-4 text-center text-sm text-gray-600">
+          <Link href="/register" className="tappable font-medium text-brand underline">Create an account</Link>{' '}
+          to track shipments and save your details.
+        </p>
+      )}
 
       <section className="mt-8 rounded-md border border-brand-light bg-brand-pale p-4">
         <h2 className="text-sm font-semibold text-brand">Why this exists</h2>
