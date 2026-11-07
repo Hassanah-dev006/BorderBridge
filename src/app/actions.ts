@@ -18,7 +18,12 @@ import {
   updateProfile, resetPassword, setAdminVerified, createShipment, recordMilestone,
   setChecklistItem, getShipment, submitReport, recentReports, listObtained,
 } from '@/lib/store';
-import { PhoneAlreadyRegisteredError } from '@/lib/store';
+import {
+  PhoneAlreadyRegisteredError, AlreadyRequestedError,
+  upsertOffering, setOfferingActive, getOffering, sendTransportRequest,
+  respondToRequest, withdrawRequest, acceptedCarrier, rateProvider,
+} from '@/lib/store';
+import { quote } from '@/lib/transport';
 import { passwordProblem, phoneProblem, normalisePhone } from '@/lib/auth';
 import {
   startSession, endSession, requireUser, currentUser,
@@ -275,4 +280,135 @@ export async function submitReportAction(formData: FormData): Promise<void> {
 
 export async function normalisePhoneAction(phone: string): Promise<string> {
   return normalisePhone(phone);
+}
+
+// --- FR-TRN-01: a provider publishes what they offer -----------------------
+
+export async function saveOfferingAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/provider');
+  if (user.role !== 'provider') back('/provider', 'Only a transport provider can publish an offering.');
+
+  const corridorId = str(formData, 'corridorId');
+  const capacityKg = Number(str(formData, 'capacityKg'));
+  const ratePerKg = Number(str(formData, 'ratePerKg'));
+  const minimumCharge = Number(str(formData, 'minimumCharge') || '0');
+
+  if (!corridorId) back('/provider', 'Choose the route you serve.');
+  if (!Number.isFinite(capacityKg) || capacityKg <= 0 || capacityKg > 60000) {
+    back('/provider', 'Enter your vehicle capacity in kilograms, between 1 and 60,000.');
+  }
+  if (!Number.isFinite(ratePerKg) || ratePerKg < 0) back('/provider', 'Enter a rate of zero or more.');
+  if (!Number.isFinite(minimumCharge) || minimumCharge < 0) back('/provider', 'Enter a minimum charge of zero or more.');
+
+  const productClasses = formData.getAll('productClasses').map(String);
+  if (productClasses.length === 0) back('/provider', 'Choose at least one class of goods you carry.');
+
+  await upsertOffering(user.id, {
+    corridorId,
+    vehicleType: str(formData, 'vehicleType') || 'Pickup',
+    capacityKg,
+    productClasses,
+    permits: str(formData, 'permits'),
+    ratePerKg,
+    minimumCharge,
+    baseLocation: str(formData, 'baseLocation'),
+    notes: str(formData, 'notes'),
+    active: str(formData, 'active') !== 'false',
+  });
+
+  revalidatePath('/provider');
+  redirect('/provider?saved=1');
+}
+
+export async function toggleOfferingAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/provider');
+  await setOfferingActive(str(formData, 'offeringId'), user.id, str(formData, 'active') === 'true');
+  revalidatePath('/provider');
+  redirect('/provider');
+}
+
+// --- FR-TRN-02: a trader requests transport --------------------------------
+
+export async function sendTransportRequestAction(formData: FormData): Promise<void> {
+  const shipmentId = str(formData, 'shipmentId');
+  const user = await requireUser(`/shipments/${shipmentId}/transport`);
+
+  const shipment = await getShipment(shipmentId);
+  if (!shipment || shipment.userId !== user.id) back('/shipments', 'That shipment is not yours.');
+
+  const offering = await getOffering(str(formData, 'offeringId'));
+  if (!offering) back(`/shipments/${shipmentId}/transport`, 'That provider is no longer available.');
+
+  // Re-quoted here rather than trusted from the form, so a tampered price cannot
+  // become a binding figure in the provider's inbox.
+  const { usd } = quote(offering, shipment.quantity);
+
+  try {
+    await sendTransportRequest({
+      shipmentId,
+      offeringId: offering.id,
+      traderId: user.id,
+      providerId: offering.providerId,
+      quotedUsd: usd,
+      message: str(formData, 'message'),
+    });
+  } catch (e) {
+    if (e instanceof AlreadyRequestedError) {
+      back(`/shipments/${shipmentId}/transport`, 'You have already contacted that provider about this shipment.');
+    }
+    throw e;
+  }
+
+  revalidatePath(`/shipments/${shipmentId}/transport`);
+  redirect(`/shipments/${shipmentId}/transport?sent=1`);
+}
+
+export async function respondToRequestAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/requests');
+  if (user.role !== 'provider') back('/requests', 'Only a transport provider can answer a request.');
+
+  const status = str(formData, 'status');
+  if (status !== 'accepted' && status !== 'declined') back('/requests', 'Choose accept or decline.');
+
+  await respondToRequest(str(formData, 'requestId'), user.id, status);
+  revalidatePath('/requests');
+  redirect(`/requests?${status === 'accepted' ? 'accepted' : 'declined'}=1`);
+}
+
+export async function withdrawRequestAction(formData: FormData): Promise<void> {
+  const shipmentId = str(formData, 'shipmentId');
+  const user = await requireUser(`/shipments/${shipmentId}/transport`);
+  await withdrawRequest(str(formData, 'requestId'), user.id);
+  revalidatePath(`/shipments/${shipmentId}/transport`);
+  redirect(`/shipments/${shipmentId}/transport`);
+}
+
+export async function rateProviderAction(formData: FormData): Promise<void> {
+  const shipmentId = str(formData, 'shipmentId');
+  const user = await requireUser(`/shipments/${shipmentId}`);
+
+  const shipment = await getShipment(shipmentId);
+  if (!shipment || shipment.userId !== user.id) back('/shipments', 'That shipment is not yours.');
+  if (shipment.status !== 'delivered') {
+    back(`/shipments/${shipmentId}`, 'You can rate a provider once the shipment has been delivered.');
+  }
+
+  const carrier = await acceptedCarrier(shipmentId);
+  if (!carrier) back(`/shipments/${shipmentId}`, 'No provider carried this shipment.');
+
+  const stars = Number(str(formData, 'stars'));
+  if (!Number.isFinite(stars) || stars < 1 || stars > 5) {
+    back(`/shipments/${shipmentId}`, 'Choose a rating from one to five.');
+  }
+
+  await rateProvider({
+    shipmentId,
+    providerId: carrier.providerId,
+    traderId: user.id,
+    stars,
+    comment: str(formData, 'comment'),
+  });
+
+  revalidatePath(`/shipments/${shipmentId}`);
+  redirect(`/shipments/${shipmentId}?rated=1`);
 }
