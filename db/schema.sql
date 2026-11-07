@@ -103,3 +103,63 @@ CREATE TABLE IF NOT EXISTS border_reports (
   reported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS border_reports_crossing_idx ON border_reports (crossing_id, reported_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Transport (FR-TRN-01, FR-TRN-02)
+-- ---------------------------------------------------------------------------
+
+-- FR-TRN-01: what a verified transport provider publishes about their service.
+-- One offering per provider per corridor, so a provider serving both directions
+-- publishes two.
+CREATE TABLE IF NOT EXISTS transport_offerings (
+  id             TEXT PRIMARY KEY,
+  provider_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  corridor_id    TEXT NOT NULL,
+  vehicle_type   TEXT NOT NULL,
+  capacity_kg    INTEGER NOT NULL CHECK (capacity_kg > 0 AND capacity_kg <= 60000),
+  product_classes TEXT[] NOT NULL DEFAULT '{}',
+  permits        TEXT NOT NULL DEFAULT '',
+  rate_per_kg    NUMERIC NOT NULL CHECK (rate_per_kg >= 0),
+  minimum_charge NUMERIC NOT NULL DEFAULT 0 CHECK (minimum_charge >= 0),
+  base_location  TEXT NOT NULL DEFAULT '',
+  notes          TEXT NOT NULL DEFAULT '',
+  active         BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (provider_id, corridor_id)
+);
+CREATE INDEX IF NOT EXISTS transport_offerings_corridor_idx ON transport_offerings (corridor_id, active);
+
+-- FR-TRN-02: a trader's request against one offering, and the provider's answer.
+-- One live request per shipment per offering, so a trader cannot spam the same
+-- provider about the same consignment.
+CREATE TABLE IF NOT EXISTS transport_requests (
+  id          TEXT PRIMARY KEY,
+  shipment_id TEXT NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
+  offering_id TEXT NOT NULL REFERENCES transport_offerings(id) ON DELETE CASCADE,
+  trader_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status      TEXT NOT NULL DEFAULT 'sent'
+              CHECK (status IN ('sent', 'accepted', 'declined', 'withdrawn')),
+  quoted_usd  NUMERIC NOT NULL CHECK (quoted_usd >= 0),
+  message     TEXT NOT NULL DEFAULT '',
+  responded_at TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (shipment_id, offering_id)
+);
+CREATE INDEX IF NOT EXISTS transport_requests_provider_idx ON transport_requests (provider_id, status);
+CREATE INDEX IF NOT EXISTS transport_requests_shipment_idx ON transport_requests (shipment_id);
+
+-- Feeds the "ranked by rating" half of FR-TRN-02. One rating per shipment, left
+-- by the trader after the goods are delivered, so a rating always corresponds to
+-- a movement that actually happened.
+CREATE TABLE IF NOT EXISTS provider_ratings (
+  id          TEXT PRIMARY KEY,
+  shipment_id TEXT NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
+  provider_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  trader_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stars       INTEGER NOT NULL CHECK (stars >= 1 AND stars <= 5),
+  comment     TEXT NOT NULL DEFAULT '',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (shipment_id)
+);
+CREATE INDEX IF NOT EXISTS provider_ratings_provider_idx ON provider_ratings (provider_id);
