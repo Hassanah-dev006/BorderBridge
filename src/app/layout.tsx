@@ -4,6 +4,8 @@ import './globals.css';
 import { currentUser } from '@/lib/session';
 import { unreadCount } from '@/lib/store';
 import { isConfigured } from '@/lib/db';
+import { withLanguage } from '@/lib/language';
+import { languageName } from '@/lib/i18n';
 
 export const metadata: Metadata = {
   title: 'BorderBridge',
@@ -18,6 +20,7 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
+  const { lang, tr } = await withLanguage();
   let unread = 0;
   if (user && isConfigured()) {
     try {
@@ -28,13 +31,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <html lang="en">
+    <html lang={lang}>
       <body className="min-h-screen">
         <header className="bg-brand text-white">
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
             <Link href="/" className="tappable inline-flex flex-col justify-center">
               <span className="text-lg font-semibold tracking-tight">BorderBridge</span>
-              <span className="text-xs text-brand-light">Rwanda – Uganda pilot</span>
+              <span className="text-xs text-brand-light">{tr('app.tagline')}</span>
             </Link>
 
             {user ? (
@@ -49,25 +52,26 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 href="/login"
                 className="tappable inline-flex items-center rounded-md bg-white/15 px-3 py-2 text-sm font-medium"
               >
-                Sign in
+                {tr('nav.signin')}
               </Link>
             )}
           </div>
 
           <nav className="border-t border-white/15">
             <div className="mx-auto flex max-w-2xl gap-1 overflow-x-auto px-2 py-1 text-sm">
-              <NavLink href="/">Plan</NavLink>
-              <NavLink href="/shipments">Shipments</NavLink>
-              <NavLink href="/report">Border reports</NavLink>
-              <NavLink href="/market">Marketplace</NavLink>
+              <NavLink href="/">{tr('nav.plan')}</NavLink>
+              <NavLink href="/shipments">{tr('nav.shipments')}</NavLink>
+              <NavLink href="/report">{tr('nav.reports')}</NavLink>
+              <NavLink href="/market">{tr('nav.market')}</NavLink>
               {user && (
                 <NavLink href="/notifications">
-                  Alerts{unread > 0 ? ` (${unread})` : ''}
+                  {tr('nav.alerts')}{unread > 0 ? ` (${unread})` : ''}
                 </NavLink>
               )}
-              {user?.role === 'provider' && <NavLink href="/provider">My offering</NavLink>}
-              {user?.role === 'provider' && <NavLink href="/requests">Requests</NavLink>}
-              {user?.role === 'admin' && <NavLink href="/admin">Admin</NavLink>}
+              {user?.role === 'provider' && <NavLink href="/provider">{tr('nav.offering')}</NavLink>}
+              {user?.role === 'provider' && <NavLink href="/requests">{tr('nav.requests')}</NavLink>}
+              {user?.role === 'admin' && <NavLink href="/admin">{tr('nav.admin')}</NavLink>}
+              <NavLink href="/language">{languageName(lang)}</NavLink>
             </div>
           </nav>
         </header>
@@ -75,9 +79,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <main className="mx-auto max-w-2xl px-4 py-6">{children}</main>
 
         <footer className="mx-auto max-w-2xl px-4 pb-10 pt-4 text-xs leading-relaxed text-gray-500">
-          BorderBridge provides guidance based on published trade rules. It is not a licensed
-          customs clearing agent and its estimates are not binding determinations by any customs
-          authority.
+          {tr('app.disclaimer')}
         </footer>
       </body>
     </html>

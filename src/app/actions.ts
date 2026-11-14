@@ -30,6 +30,8 @@ import {
 } from '@/lib/store';
 import { quote } from '@/lib/transport';
 import { listingExpiry } from '@/lib/market';
+import { isLanguage } from '@/lib/i18n';
+import { setLanguageCookie } from '@/lib/language';
 import { delaySummary, SEVERE_DELAY_MINUTES } from '@/lib/notify';
 import { getCrossing } from '@/lib/border';
 import { getProduct, getRulesForCorridor, getCorridor } from '@/lib/repository';
@@ -731,4 +733,29 @@ export async function recordActualCostAction(formData: FormData): Promise<void> 
 
   revalidatePath(`/shipments/${shipmentId}`);
   redirect(`/shipments/${shipmentId}?costed=1`);
+}
+
+// --- FR-LOC-01: choose a language, and keep it ------------------------------
+
+export async function setLanguageAction(formData: FormData): Promise<void> {
+  const chosen = str(formData, 'lang');
+  if (!isLanguage(chosen)) back('/language', 'Choose one of the four languages.');
+
+  // The cookie is what makes the choice survive for someone without an account;
+  // the profile is what carries it to their other devices.
+  setLanguageCookie(chosen);
+
+  const user = await currentUser();
+  if (user) {
+    await updateProfile(user.id, {
+      displayName: user.displayName,
+      businessName: user.businessName ?? '',
+      homeCorridorId: user.homeCorridorId ?? '',
+      principalProducts: user.principalProducts ?? '',
+      language: chosen,
+    });
+  }
+
+  revalidatePath('/', 'layout');
+  redirect('/language?saved=1');
 }
