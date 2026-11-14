@@ -189,6 +189,89 @@ describe('constraints', () => {
     );
   });
 
+  test('one listing per user, kind, product and market (FR-MKT-01)', async () => {
+    await db.query(
+      `INSERT INTO market_listings (id, user_id, kind, product_id, country, expires_at)
+       VALUES ('m-1', 'u-owner', 'selling', 'coffee-green', 'RW', NOW() + INTERVAL '30 days')`,
+    );
+    await refuses(
+      `INSERT INTO market_listings (id, user_id, kind, product_id, country, expires_at)
+       VALUES ('m-2', 'u-owner', 'selling', 'coffee-green', 'RW', NOW() + INTERVAL '30 days')`,
+      'a duplicate listing',
+    );
+    // The same product in the other market is a different listing.
+    await db.query(
+      `INSERT INTO market_listings (id, user_id, kind, product_id, country, expires_at)
+       VALUES ('m-3', 'u-owner', 'selling', 'coffee-green', 'UG', NOW() + INTERVAL '30 days')`,
+    );
+  });
+
+  test('a listing kind is restricted to buying or selling', async () => {
+    await refuses(
+      `INSERT INTO market_listings (id, user_id, kind, product_id, country, expires_at)
+       VALUES ('m-bad', 'u-owner', 'bartering', 'coffee-green', 'RW', NOW() + INTERVAL '30 days')`,
+      'an invented listing kind',
+    );
+  });
+
+  test('a trader cannot enquire twice about the same listing (FR-MKT-03)', async () => {
+    await db.query(
+      `INSERT INTO users (id, phone, display_name, password_hash)
+       VALUES ('u-buyer', '+256700000001', 'Buyer', 'salt:hash')`,
+    );
+    await db.query(
+      `INSERT INTO market_enquiries (id, listing_id, from_user_id, to_user_id, message)
+       VALUES ('q-m1', 'm-1', 'u-buyer', 'u-owner', 'Interested')`,
+    );
+    await refuses(
+      `INSERT INTO market_enquiries (id, listing_id, from_user_id, to_user_id, message)
+       VALUES ('q-m2', 'm-1', 'u-buyer', 'u-owner', 'Still interested')`,
+      'a second enquiry on the same listing',
+    );
+  });
+
+  test('a notification kind is restricted to the five the system defines', async () => {
+    await refuses(
+      `INSERT INTO notifications (id, user_id, kind, title)
+       VALUES ('n-bad', 'u-owner', 'gossip', 'Hello')`,
+      'an invented notification kind',
+    );
+    await db.query(
+      `INSERT INTO notifications (id, user_id, kind, title)
+       VALUES ('n-ok', 'u-owner', 'rule-change', 'Rules changed')`,
+    );
+  });
+
+  test('a subscription is unique on what it follows (FR-NOT-01)', async () => {
+    await db.query(
+      `INSERT INTO notification_subscriptions (id, user_id, corridor_id)
+       VALUES ('sub-1', 'u-owner', 'RW-UG')`,
+    );
+    // Postgres treats NULLs as distinct in a unique index, so the guard against an
+    // exact duplicate is the ON CONFLICT in store.ts, not this constraint. What this
+    // asserts is that a DIFFERENT subscription is accepted alongside it.
+    await db.query(
+      `INSERT INTO notification_subscriptions (id, user_id, corridor_id, product_category)
+       VALUES ('sub-2', 'u-owner', 'RW-UG', 'Agricultural')`,
+    );
+    const r = await db.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM notification_subscriptions WHERE user_id = 'u-owner'`,
+    );
+    assert.equal(r.rows[0].n, 2);
+  });
+
+  test('the rule watermark stores a snapshot it can diff against (FR-NOT-02)', async () => {
+    const snap = [{ id: 'R1', name: 'Import duty', sig: 'R1|1|duty' }];
+    await db.query(
+      `INSERT INTO rule_watermarks (corridor_id, fingerprint, snapshot) VALUES ('RW-UG', 'abc123', $1)`,
+      [JSON.stringify(snap)],
+    );
+    const r = await db.query<{ snapshot: typeof snap }>(
+      `SELECT snapshot FROM rule_watermarks WHERE corridor_id = 'RW-UG'`,
+    );
+    assert.deepEqual(r.rows[0].snapshot, snap);
+  });
+
   test('the plan snapshot round-trips as JSON (FR-SHP-01)', async () => {
     const plan = { recommendedCrossing: 'Gatuna / Katuna', cost: { totalUsd: 1234.56 }, checklist: [{ ruleId: 'X' }] };
     await db.query(
