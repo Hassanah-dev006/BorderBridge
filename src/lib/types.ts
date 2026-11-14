@@ -363,3 +363,122 @@ export interface ProviderRating {
   comment: string;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Marketplace (FR-MKT-01, FR-MKT-02, FR-MKT-03)
+// ---------------------------------------------------------------------------
+
+export type ListingKind = 'selling' | 'buying';
+
+/** FR-MKT-01 — what a user wishes to buy or sell, and where. */
+export interface MarketListing {
+  id: string;
+  userId: string;
+  kind: ListingKind;
+  productId: string;
+  /** Where the goods are, for a seller; where they are wanted, for a buyer. */
+  country: string;
+  location: string;
+  quantity: number | null;
+  unit: string;
+  pricePerUnit: number | null;
+  currency: string;
+  note: string;
+  active: boolean;
+  expiresAt: string;
+  createdAt: string;
+}
+
+/**
+ * A listing with its owner's public details only.
+ *
+ * There is deliberately no phone number on this type. FR-MKT-03 releases contact
+ * details when an enquiry is accepted, and a type that cannot carry a number cannot
+ * leak one by accident.
+ */
+export interface ListingWithOwner extends MarketListing {
+  ownerName: string;
+  ownerBusiness: string | null;
+  ownerVerified: boolean;
+  productName: string;
+  productCategory: string;
+  /** Days remaining before the listing expires; negative when already expired. */
+  daysRemaining: number;
+  expired: boolean;
+}
+
+export type EnquiryStatus = 'sent' | 'accepted' | 'declined';
+
+export interface MarketEnquiry {
+  id: string;
+  listingId: string;
+  fromUserId: string;
+  toUserId: string;
+  message: string;
+  status: EnquiryStatus;
+  respondedAt: string | null;
+  createdAt: string;
+}
+
+/** An enquiry joined to what a page needs. `counterpartyPhone` is null until accepted. */
+export interface EnquiryDetail extends MarketEnquiry {
+  listingKind: ListingKind;
+  productName: string;
+  country: string;
+  fromName: string;
+  toName: string;
+  counterpartyPhone: string | null;
+}
+
+/** One candidate in the FR-MKT-02 match. */
+export interface MatchedListing {
+  listing: ListingWithOwner;
+  /** Why this listing was surfaced for the stated intention. */
+  reason: string;
+}
+
+export interface MarketMatch {
+  matched: MatchedListing[];
+  /** What the trader was matched against, stated so the result is explicable. */
+  lookingFor: string;
+  excluded: { name: string; reason: string }[];
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (FR-NOT-01, FR-NOT-02)
+// ---------------------------------------------------------------------------
+
+export type NotificationKind = 'rule-change' | 'border' | 'transport' | 'market' | 'shipment';
+
+/** FR-NOT-01 — a null field means "any", so an empty subscription is everything. */
+export interface Subscription {
+  id: string;
+  userId: string;
+  corridorId: string | null;
+  crossingId: string | null;
+  productCategory: string | null;
+  createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  link: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+/** What `checkRuleChanges` found when it compared the rule set against the watermark. */
+export interface RuleChange {
+  corridorId: string;
+  fingerprint: string;
+  previousFingerprint: string | null;
+  /** Null on the very first check — we record the mark rather than announcing it. */
+  changed: boolean;
+  added: string[];
+  amended: string[];
+  removed: string[];
+}
