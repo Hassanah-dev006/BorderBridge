@@ -13,11 +13,11 @@ import {
   newId, sessionExpiry, normalisePhone, throttle, LOCKOUT_THRESHOLD,
 } from './auth';
 import type {
-  BorderReport, EnquiryDetail, EnquiryStatus, Language, ListingKind,
-  ListingWithOwner, Milestone, Notification, NotificationKind,
-  OfferingWithProvider, ProviderRating, RequestDetail, Session, Shipment,
-  ShipmentStatus, Subscription, ThrottleState, TradePlan, TransportRequestStatus,
-  User, UserRole,
+  AuditEntry, BorderReport, EnquiryDetail, EnquiryStatus, Language, ListingKind,
+  ListingWithOwner, Milestone, Notification, NotificationKind, OfferingWithProvider,
+  OperationalMetrics, OverlayAction, OverlayStatus, ProviderRating, RegulatoryRule,
+  RequestDetail, RuleOverlay, Session, Shipment, ShipmentStatus, Subscription,
+  ThrottleState, TradePlan, TransportRequestStatus, User, UserRole,
 } from './types';
 
 // --- row mapping -----------------------------------------------------------
@@ -955,4 +955,206 @@ export async function setWatermark(corridorId: string, fingerprint: string): Pro
     INSERT INTO rule_watermarks (corridor_id, fingerprint) VALUES (${corridorId}, ${fingerprint})
     ON CONFLICT (corridor_id) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, checked_at = NOW()
   `;
+}
+
+// --- rule overlays and the audit log (FR-ADM-01, FR-ADM-02) ----------------
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function toOverlay(r: any): RuleOverlay {
+  return {
+    id: r.id,
+    ruleId: r.rule_id,
+    corridorId: r.corridor_id,
+    version: Number(r.version),
+    action: r.action as OverlayAction,
+    payload: r.payload as RegulatoryRule,
+    status: r.status as OverlayStatus,
+    note: r.note,
+    createdBy: r.created_by,
+    createdByName: r.created_by_name ?? 'Unknown',
+    createdAt: new Date(r.created_at).toISOString(),
+    publishedBy: r.published_by,
+    publishedByName: r.published_by_name ?? null,
+    publishedAt: r.published_at ? new Date(r.published_at).toISOString() : null,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const OVERLAY_SELECT = `
+  SELECT o.*,
+         c.display_name AS created_by_name,
+         p.display_name AS published_by_name
+  FROM rule_overlays o
+  LEFT JOIN users c ON c.id = o.created_by
+  LEFT JOIN users p ON p.id = o.published_by
+`;
+
+/** Every overlay, newest first — what the administration page lists. */
+export async function listOverlays(): Promise<RuleOverlay[]> {
+  const sql = db();
+  const rows = await sql.unsafe(`${OVERLAY_SELECT} ORDER BY o.created_at DESC LIMIT 300`);
+  return rows.map(toOverlay);
+}
+
+/**
+ * Published overlays only — what the engines merge over the JSON base.
+ *
+ * Pages call this and pass the result in, the same way they pass live border
+ * reports, so the engines stay free of I/O.
+ */
+export async function publishedOverlays(): Promise<RuleOverlay[]> {
+  const sql = db();
+  const rows = await sql.unsafe(`${OVERLAY_SELECT} WHERE o.status = 'published'`);
+  return rows.map(toOverlay);
+}
+
+export async function getOverlay(id: string): Promise<RuleOverlay | null> {
+  const sql = db();
+  const rows = await sql.unsafe(`${OVERLAY_SELECT} WHERE o.id = $1`, [id]);
+  return rows[0] ? toOverlay(rows[0]) : null;
+}
+
+/** FR-ADM-01 — record a change as a new version. It changes nothing until published. */
+export async function createOverlay(input: {
+  ruleId: string; corridorId: string; version: number; action: OverlayAction;
+  payload: RegulatoryRule; note: string; createdBy: string;
+}): Promise<string> {
+  const sql = db();
+  const id = newId();
+  await sql`
+    INSERT INTO rule_overlays (id, rule_id, corridor_id, version, action, payload, note, created_by)
+    VALUES (${id}, ${input.ruleId}, ${input.corridorId}, ${input.version}, ${input.action},
+            ${sql.json(input.payload as never)}, ${input.note.trim().slice(0, 400)}, ${input.createdBy})
+  `;
+  return id;
+}
+
+export async function discardDraft(overlayId: string): Promise<boolean> {
+  const sql = db();
+  const rows = await sql`DELETE FROM rule_overlays WHERE id = ${overlayId} AND status = 'draft' RETURNING id`;
+  return rows.length > 0;
+}
+
+/**
+ * FR-ADM-02 — the explicit publication step.
+ *
+ * Publishing supersedes any earlier published overlay for the same rule, so the
+ * history stays readable: one live version, and everything it replaced marked as
+ * such rather than deleted.
+ */
+export async function publishOverlay(overlayId: string, publisherId: string): Promise<RuleOverlay | null> {
+  const sql = db();
+  const target = await getOverlay(overlayId);
+  if (!target || target.status !== 'draft') return null;
+
+  await sql`
+    UPDATE rule_overlays SET status = 'superseded'
+    WHERE rule_id = ${target.ruleId} AND status = 'published'
+  `;
+  await sql`
+    UPDATE rule_overlays SET status = 'published', published_by = ${publisherId}, published_at = NOW()
+    WHERE id = ${overlayId}
+  `;
+  return getOverlay(overlayId);
+}
+
+export async function writeAudit(input: {
+  actorId: string; actorName: string; action: string; subject: string; detail?: string;
+}): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO audit_log (id, actor_id, actor_name, action, subject, detail)
+    VALUES (${newId()}, ${input.actorId}, ${input.actorName}, ${input.action},
+            ${input.subject}, ${(input.detail ?? '').slice(0, 600)})
+  `;
+}
+
+export async function listAudit(limit = 60): Promise<AuditEntry[]> {
+  const sql = db();
+  const rows = await sql`SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ${limit}`;
+  return rows.map((r) => ({
+    id: r.id,
+    actorId: r.actor_id,
+    actorName: r.actor_name,
+    action: r.action,
+    subject: r.subject,
+    detail: r.detail,
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
+// --- reporting (FR-RPT-01, FR-RPT-02) --------------------------------------
+
+/** FR-RPT-01 — one round trip for the whole operational picture. */
+export async function operationalMetrics(): Promise<OperationalMetrics> {
+  const sql = db();
+  const rows = await sql`
+    SELECT
+      (SELECT COUNT(*) FROM users)::int AS registrations,
+      (SELECT COUNT(*) FROM users WHERE verified_by_admin)::int AS verified_accounts,
+      (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE created_at > NOW() - INTERVAL '30 days')::int AS active_users_30d,
+      (SELECT COUNT(*) FROM shipments)::int AS shipments_created,
+      (SELECT COUNT(*) FROM shipments WHERE status = 'delivered')::int AS shipments_delivered,
+      (SELECT COUNT(*) FROM checklist_progress)::int AS checklist_items_obtained,
+      (SELECT COUNT(*) FROM border_reports)::int AS border_reports,
+      (SELECT COUNT(*) FROM transport_requests)::int AS transport_requests,
+      (SELECT COUNT(*) FROM market_listings WHERE active)::int AS market_listings,
+      (SELECT COUNT(*) FROM users WHERE role = 'provider')::int AS providers
+  `;
+  const r = rows[0];
+  return {
+    registrations: r.registrations,
+    verifiedAccounts: r.verified_accounts,
+    activeUsers30d: r.active_users_30d,
+    shipmentsCreated: r.shipments_created,
+    shipmentsDelivered: r.shipments_delivered,
+    checklistItemsObtained: r.checklist_items_obtained,
+    borderReports: r.border_reports,
+    transportRequests: r.transport_requests,
+    marketListings: r.market_listings,
+    providers: r.providers,
+  };
+}
+
+/** FR-RPT-02 — what a trader recorded a delivered shipment actually cost. */
+export async function recordActualCost(
+  shipmentId: string, userId: string, actualUsd: number, note: string,
+): Promise<boolean> {
+  const sql = db();
+  const rows = await sql`
+    UPDATE shipments
+    SET actual_cost_usd = ${actualUsd}, actual_cost_note = ${note.trim().slice(0, 400)}, actual_recorded_at = NOW()
+    WHERE id = ${shipmentId} AND user_id = ${userId} AND status = 'delivered'
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+export async function getActualCost(
+  shipmentId: string,
+): Promise<{ actualUsd: number; note: string; recordedAt: string } | null> {
+  const sql = db();
+  const rows = await sql`
+    SELECT actual_cost_usd, actual_cost_note, actual_recorded_at FROM shipments WHERE id = ${shipmentId}
+  `;
+  const r = rows[0];
+  if (!r || r.actual_cost_usd === null) return null;
+  return {
+    actualUsd: Number(r.actual_cost_usd),
+    note: r.actual_cost_note,
+    recordedAt: new Date(r.actual_recorded_at).toISOString(),
+  };
+}
+
+/** Every shipment with a recorded outcome, for the accuracy report. */
+export async function shipmentsWithOutcomes(): Promise<{ shipment: Shipment; actualUsd: number; recordedAt: string }[]> {
+  const sql = db();
+  const rows = await sql`
+    SELECT * FROM shipments WHERE actual_cost_usd IS NOT NULL ORDER BY actual_recorded_at DESC LIMIT 200
+  `;
+  return rows.map((r) => ({
+    shipment: toShipment(r),
+    actualUsd: Number(r.actual_cost_usd),
+    recordedAt: new Date(r.actual_recorded_at).toISOString(),
+  }));
 }
