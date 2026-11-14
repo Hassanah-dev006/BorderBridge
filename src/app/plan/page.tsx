@@ -258,6 +258,19 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
         </p>
       </section>
 
+      {/* FR-REQ-05 — take the checklist with you */}
+      <section className="border-t border-gray-200 pt-5">
+        <Link
+          href={`/plan/print?corridor=${corridorId}&product=${productId}&quantity=${quantity}&value=${declaredValue}&currency=${currency}`}
+          className="tappable flex items-center justify-center rounded-md border border-brand bg-white px-4 py-3 text-base font-semibold text-brand"
+        >
+          Print, save as PDF, or copy as text
+        </Link>
+        <p className="mt-2 text-center text-xs text-gray-500">
+          A one-page checklist to carry, in your chosen language.
+        </p>
+      </section>
+
       {/* FR-MKT-02 — who might buy this, in the destination market */}
       {(() => {
         const market = matchListings(plan.intention, plan.corridor, plan.product, listings);

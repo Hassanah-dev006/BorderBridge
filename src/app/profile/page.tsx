@@ -10,6 +10,7 @@ import { Field, Select, Submit, Notice, PageTitle, StatusPill } from '../ui';
 import { requireUser } from '@/lib/session';
 import { listSupportedCorridors } from '@/lib/repository';
 import { countReportsByUser, listShipments } from '@/lib/store';
+import { LANGUAGES, coverage } from '@/lib/i18n';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,12 +82,8 @@ export default async function ProfilePage({
         />
         <Select
           label="Language" name="language" defaultValue={user.preferredLanguage}
-          options={[
-            { value: 'en', label: 'English' },
-            { value: 'fr', label: 'Français' },
-            { value: 'sw', label: 'Kiswahili' },
-            { value: 'rw', label: 'Kinyarwanda' },
-          ]}
+          options={LANGUAGES.map((l) => ({ value: l.code, label: `${l.endonym} (${coverage(l.code).percent}%)` }))}
+          hint="The percentage is how much of the interface exists in that language — anything else falls back to English."
         />
         <Submit>Save profile</Submit>
       </form>
