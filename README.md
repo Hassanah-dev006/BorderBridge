@@ -7,13 +7,15 @@
 
 A cross-border trade planning tool for small-scale traders on the Rwanda–Uganda
 corridor. A trader states what they are moving; BorderBridge works out which documents
-that specific consignment needs, what it should cost, which border crossing to use, and why, citing the rule behind every answer.
+that specific consignment needs, what it should cost, which border crossing to use, and
+why — citing the rule behind every answer.
 
 Built for the ALU BSc Software Engineering summative, implementing the requirements in
 *BorderBridge — Project Proposal and Software Requirements Specification*.
 
 - **Live application:** <https://border-bridge-sigma.vercel.app>
-- **SRS document:** <https://docs.google.com/document/d/16lNkh2KS8_J3eP-FqzChvQBI85lKpePQS88Z66KXyfw/edit?usp=sharing>
+- **SRS document:** _add your Google Drive link here_
+
 ---
 
 ## Table of contents
@@ -44,7 +46,8 @@ Built for the ALU BSc Software Engineering summative, implementing the requireme
 | **Transport** | Providers publish routes, capacity, permits and rates; traders see those who fit their consignment, ranked by verification, rating and price, and send a request the provider accepts or declines |
 | **Marketplace** | Publish what you want to buy or sell; see buyers in the destination market for the consignment you are planning; enquire without either party disclosing a phone number until the owner accepts |
 | **Notifications** | Follow corridors, crossings and product categories; be told when the rules on that route change, or when another trader reports a long delay |
-| **Administration** | Verify provider accounts; see which regulatory rules are overdue for re-verification |
+| **Administration** | Create, amend and retire rules as versioned overlays with an explicit publication step and an audit log; verify provider accounts; see which rules are overdue for re-verification |
+| **Reporting** | Operational metrics, and how close the cost estimates have been against what traders recorded they actually paid |
 
 The thing that makes it more than a reference site: it computes against **your**
 consignment. Published trade information exists in plenty of places. What does not
@@ -165,7 +168,7 @@ Safe to re-run at any time — every statement is guarded with `IF NOT EXISTS`.
 npm test
 ```
 
-Expect **158 tests passing, 0 failing**. These need no database: the schema tests run
+Expect **204 tests passing, 0 failing**. These need no database: the schema tests run
 Postgres in-process through PGlite.
 
 ---
@@ -337,6 +340,8 @@ BorderBridge/
 │   ├── market.ts            Marketplace matching and the public-name rule
 │   ├── notify.ts            Subscription matching and rule fingerprinting
 │   ├── rulewatch.ts         Detects rule changes and notifies subscribers
+│   ├── rules-admin.ts       Rule validation, versioning and overlay merging
+│   ├── reporting.ts         Operational metrics and estimate accuracy
 │   └── shipments.ts         Readiness and milestone rules
 ├── src/app/               Pages, server-rendered
 └── tests/                 87 tests
@@ -388,16 +393,21 @@ Which SRS requirement each part of the code realises:
 | FR-MKT-03 enquire without disclosing contact details | `store.ts sendEnquiry`, `/market/enquiries` |
 | FR-NOT-01 subscribe to corridors, crossings and goods | `store.ts addSubscription`, `/notifications` |
 | FR-NOT-02 notify when the rules change | `rulewatch.ts syncRuleChanges`, `notify.ts diffSnapshots` |
+| FR-ADM-01 create, amend and retire rules as versions | `rules-admin.ts`, `store.ts createOverlay`, `/admin/rules` |
+| FR-ADM-02 explicit publication step, audit logged | `store.ts publishOverlay`, `store.ts writeAudit`, `/admin/rules` |
+| FR-ADM-03 reject a rule with no instrument or date | `rules-admin.ts validateRule` |
 | FR-ADM-04 flag rules due for review | `repository.ts isOverdue`, `/admin` |
+| FR-RPT-01 operational metrics | `store.ts operationalMetrics`, `/admin/reports` |
+| FR-RPT-02 estimate accuracy against outcomes | `reporting.ts accuracyReport`, `/admin/reports` |
 | NFR-ACC-01 citation at point of use | every checklist item and cost line |
 | NFR-ACC-02 mark unverified output | `/plan` amber banner |
 | NFR-USA-04 44 px touch targets | `globals.css`, `ui.tsx` |
 | NFR-PRF-01 works on a slow connection | server-rendered; forms work without JavaScript |
 
-Not yet implemented, and honest about it: FR-ADM-01/02/03 (rule editing through the
-interface — rules are edited in `data/rules.json`), FR-RPT (reporting dashboard),
-FR-LOC-01 (the language choice is stored but the interface is English only),
-FR-REQ-05 (PDF export).
+Not yet implemented, and honest about it: **FR-LOC-01** (the language choice is
+stored on the profile, but every page is in English) and **FR-REQ-05** (exporting a
+checklist as a PDF or plain text). Both are within the REQ and LOC modules rather
+than modules of their own.
 
 ---
 
@@ -407,7 +417,7 @@ FR-REQ-05 (PDF export).
 npm test
 ```
 
-158 tests across nine files:
+204 tests across eleven files:
 
 | File | Covers |
 |---|---|
@@ -418,6 +428,8 @@ npm test
 | `tests/transport.test.ts` | Quoting and minimum charges, capacity fit, exclusion by route and product class, and the verification → rating → price ranking |
 | `tests/market.test.ts` | Listing lifetime, the public-name rule, matching buyers in the destination market, and that the listing type cannot carry a phone number |
 | `tests/notify.test.ts` | Subscription matching, rule fingerprinting, and that editing explanatory text notifies nobody |
+| `tests/rules-admin.test.ts` | That a rule with no citation is refused, that a draft is invisible to the engines, and that the base file is never mutated |
+| `tests/reporting.test.ts` | Variance direction, bias, the confidence band each outcome is judged against, and that a thin sample is called anecdote |
 | `tests/schema.test.ts` | Applies `db/schema.sql` to real Postgres in-process and checks constraints and cascades |
 
 Type checking:
@@ -440,9 +452,13 @@ Stated plainly rather than hidden:
    the pilot corridor has been researched and cited.
 3. **Exchange rates are cached, not live.** `catalogue.json` holds a rate table with a
    retrieval timestamp, and the interface shows its age.
-4. **Nine of the eleven SRS modules are built.** The traceability table above says which.
-5. **Rules are edited in the JSON file, not through the admin interface.** Deliberate —
-   see constraint C1 — but it does mean rule changes require a redeploy.
+4. **All eleven SRS modules are built**, two of them with a stated gap. The traceability table above says which.
+5. **Rules are amended as overlays, not by editing the file at runtime.** Constraint C1
+   wants a hand-editable knowledge base in version control; FR-ADM-01 wants an
+   administrator to amend rules through the interface. A deployed application cannot
+   write to its own source, so `data/rules.json` stays the reviewable base and the
+   interface writes versioned overlays on top of it. Both requirements survive; the
+   cost is that the full picture is two places rather than one.
 6. **Notifications are polled, not pushed.** With no SMS gateway and no background
    service, the rule comparison runs when a user opens the notifications page. The
    detection, the diff and the fan-out to subscribers are real; only the delivery
