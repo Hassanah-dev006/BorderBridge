@@ -272,6 +272,72 @@ describe('constraints', () => {
     assert.deepEqual(r.rows[0].snapshot, snap);
   });
 
+  test('a rule overlay is versioned, one per rule version (FR-ADM-01)', async () => {
+    const payload = JSON.stringify({ id: 'R-1', name: 'Test rule', version: 2 });
+    await db.query(
+      `INSERT INTO rule_overlays (id, rule_id, corridor_id, version, action, payload, created_by)
+       VALUES ('ov-1', 'R-1', 'RW-UG', 2, 'amend', $1, 'u-owner')`,
+      [payload],
+    );
+    await refuses(
+      `INSERT INTO rule_overlays (id, rule_id, corridor_id, version, action, payload, created_by)
+       VALUES ('ov-2', 'R-1', 'RW-UG', 2, 'amend', $1, 'u-owner')`,
+      'a second overlay at the same version',
+    );
+  });
+
+  test('an overlay starts as a draft and nothing else (FR-ADM-02)', async () => {
+    const payload = JSON.stringify({ id: 'R-2', name: 'Another', version: 1 });
+    await db.query(
+      `INSERT INTO rule_overlays (id, rule_id, corridor_id, version, action, payload)
+       VALUES ('ov-3', 'R-2', 'RW-UG', 1, 'create', $1)`,
+      [payload],
+    );
+    const r = await db.query<{ status: string }>(`SELECT status FROM rule_overlays WHERE id = 'ov-3'`);
+    assert.equal(r.rows[0].status, 'draft', 'a new overlay must not be live by default');
+
+    await refuses(
+      `INSERT INTO rule_overlays (id, rule_id, corridor_id, version, action, payload, status)
+       VALUES ('ov-bad', 'R-3', 'RW-UG', 1, 'create', $1, 'live')`,
+      'an invented overlay status',
+    );
+  });
+
+  test('the audit log keeps the actor name after the account goes', async () => {
+    await db.query(
+      `INSERT INTO users (id, phone, display_name, password_hash, role)
+       VALUES ('u-admin', '+250788000099', 'Departing Admin', 'salt:hash', 'admin')`,
+    );
+    await db.query(
+      `INSERT INTO audit_log (id, actor_id, actor_name, action, subject)
+       VALUES ('a-1', 'u-admin', 'Departing Admin', 'rule.publish', 'R-1 v2')`,
+    );
+    await db.query(`DELETE FROM users WHERE id = 'u-admin'`);
+
+    const r = await db.query<{ actor_id: string | null; actor_name: string }>(
+      `SELECT actor_id, actor_name FROM audit_log WHERE id = 'a-1'`,
+    );
+    assert.equal(r.rows.length, 1, 'the audit entry must survive the account');
+    assert.equal(r.rows[0].actor_id, null);
+    assert.equal(r.rows[0].actor_name, 'Departing Admin', 'who published a change to the law must not be erasable');
+  });
+
+  test('a recorded actual cost cannot be negative (FR-RPT-02)', async () => {
+    await db.query(
+      `INSERT INTO shipments (id, user_id, corridor_id, product_id, quantity, declared_value, currency, plan_snapshot, status)
+       VALUES ('s-rpt', 'u-owner', 'RW-UG', 'coffee-green', 200, 1200, 'USD', '{"checklist":[]}', 'delivered')`,
+    );
+    await refuses(
+      `UPDATE shipments SET actual_cost_usd = -5 WHERE id = 's-rpt'`,
+      'a negative actual cost',
+    );
+    await db.query(`UPDATE shipments SET actual_cost_usd = 1450.25 WHERE id = 's-rpt'`);
+    const r = await db.query<{ actual_cost_usd: string }>(
+      `SELECT actual_cost_usd FROM shipments WHERE id = 's-rpt'`,
+    );
+    assert.equal(Number(r.rows[0].actual_cost_usd), 1450.25);
+  });
+
   test('the plan snapshot round-trips as JSON (FR-SHP-01)', async () => {
     const plan = { recommendedCrossing: 'Gatuna / Katuna', cost: { totalUsd: 1234.56 }, checklist: [{ ruleId: 'X' }] };
     await db.query(
