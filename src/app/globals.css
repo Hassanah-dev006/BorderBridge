@@ -12,3 +12,25 @@ body {
 
 /* Touch targets of at least 44x44 CSS px (SRS NFR-USA-04). */
 button, select, input, a.tappable { min-height: 44px; }
+
+/* FR-REQ-05 — the print view.
+   Only the sheet is printed: the navigation, the plain-text block and the
+   instructions are the trader's tools, not part of the document they carry. */
+@media print {
+  header, footer, .no-print { display: none !important; }
+
+  body { background: #FFFFFF; }
+
+  main { max-width: none; padding: 0; }
+
+  .print-sheet {
+    border: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  /* A checklist is useless split across a page break mid-item. */
+  .print-sheet li, .print-sheet section { break-inside: avoid; }
+
+  a[href]::after { content: ''; }
+}
