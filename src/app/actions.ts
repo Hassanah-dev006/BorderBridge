@@ -25,12 +25,17 @@ import {
   respondToRequest, withdrawRequest, acceptedCarrier, rateProvider,
   upsertListing, setListingActive, getListing, sendEnquiry, respondToEnquiry,
   addSubscription, removeSubscription, markAllRead, notify, subscribersFor,
+  listOverlays, createOverlay, publishOverlay, discardDraft, getOverlay,
+  writeAudit, recordActualCost,
 } from '@/lib/store';
 import { quote } from '@/lib/transport';
 import { listingExpiry } from '@/lib/market';
 import { delaySummary, SEVERE_DELAY_MINUTES } from '@/lib/notify';
 import { getCrossing } from '@/lib/border';
-import { getProduct } from '@/lib/repository';
+import { getProduct, getRulesForCorridor, getCorridor } from '@/lib/repository';
+import {
+  validateRule, nextVersion, effectiveRules, describeChange, draftFromFields,
+} from '@/lib/rules-admin';
 import { passwordProblem, phoneProblem, normalisePhone } from '@/lib/auth';
 import {
   startSession, endSession, requireUser, currentUser,
@@ -38,7 +43,10 @@ import {
 } from '@/lib/session';
 import { buildTradePlan } from '@/lib/engines';
 import { readiness, allowedNextStatuses } from '@/lib/shipments';
-import type { BorderReport, Language, ListingKind, ShipmentStatus, UserRole } from '@/lib/types';
+import type {
+  BorderReport, Language, ListingKind, OverlayAction, RegulatoryRule,
+  ShipmentStatus, UserRole,
+} from '@/lib/types';
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
 
@@ -575,4 +583,152 @@ export async function markAllReadAction(): Promise<void> {
   await markAllRead(user.id);
   revalidatePath('/notifications');
   redirect('/notifications');
+}
+
+// --- FR-ADM-01 / FR-ADM-03: draft a rule change ----------------------------
+
+async function requireAdmin(returnTo: string) {
+  const user = await requireUser(returnTo);
+  if (user.role !== 'admin') back(returnTo, 'Only an administrator can do that.');
+  return user;
+}
+
+export async function draftRuleAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin('/admin/rules');
+
+  const action = str(formData, 'action') as OverlayAction;
+  if (!['create', 'amend', 'retire'].includes(action)) back('/admin/rules', 'Choose create, amend or retire.');
+
+  const ruleId = str(formData, 'id');
+  const corridorId = str(formData, 'corridorId');
+
+  const base = getRulesForCorridor(corridorId);
+  const existing = await listOverlays();
+  const version = nextVersion(ruleId, existing, base);
+
+  // A retirement keeps the rule as it reads today, so the record shows what was
+  // withdrawn rather than an empty row.
+  let payload: RegulatoryRule;
+  if (action === 'retire') {
+    const current = effectiveRules(base, existing).find((r) => r.id === ruleId);
+    if (!current) back('/admin/rules', 'There is no rule with that identifier to retire.');
+    payload = { ...current, version };
+  } else {
+    const draft = draftFromFields({
+      id: ruleId,
+      corridorId,
+      ruleType: str(formData, 'ruleType'),
+      name: str(formData, 'name'),
+      reason: str(formData, 'reason'),
+      sourceCitation: str(formData, 'sourceCitation'),
+      sourceUrl: str(formData, 'sourceUrl'),
+      lastVerifiedDate: str(formData, 'lastVerifiedDate'),
+      issuingAuthority: str(formData, 'issuingAuthority'),
+      mandatory: str(formData, 'mandatory') !== 'false',
+      estimatedProcessingTime: str(formData, 'estimatedProcessingTime'),
+      ratePercent: str(formData, 'ratePercent'),
+      flatAmount: str(formData, 'flatAmount'),
+      flatCurrency: str(formData, 'flatCurrency'),
+      thresholdValue: str(formData, 'thresholdValue'),
+      thresholdCurrency: str(formData, 'thresholdCurrency'),
+      scope: str(formData, 'scope'),
+      hsPrefixes: str(formData, 'hsPrefixes'),
+      version,
+    });
+
+    // FR-ADM-03 — rejected, not stored and flagged.
+    const check = validateRule(draft);
+    if (!check.valid) back('/admin/rules', check.problems.join(' '));
+    payload = draft as RegulatoryRule;
+  }
+
+  const overlayId = await createOverlay({
+    ruleId, corridorId, version, action, payload,
+    note: str(formData, 'note'), createdBy: admin.id,
+  });
+
+  await writeAudit({
+    actorId: admin.id,
+    actorName: admin.displayName,
+    action: 'rule.draft',
+    subject: `${ruleId} v${version}`,
+    detail: `${describeChange(action, payload)} — drafted, not yet in force.`,
+  });
+
+  revalidatePath('/admin/rules');
+  redirect(`/admin/rules?drafted=${encodeURIComponent(overlayId)}`);
+}
+
+// --- FR-ADM-02: the explicit publication step ------------------------------
+
+export async function publishRuleAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin('/admin/rules');
+  const overlayId = str(formData, 'overlayId');
+
+  const published = await publishOverlay(overlayId, admin.id);
+  if (!published) back('/admin/rules', 'That draft has already been published or withdrawn.');
+
+  await writeAudit({
+    actorId: admin.id,
+    actorName: admin.displayName,
+    action: 'rule.publish',
+    subject: `${published.ruleId} v${published.version}`,
+    detail: `${describeChange(published.action, published.payload)} — now in force for every trader on ${published.corridorId}.`,
+  });
+
+  // FR-NOT-02 — the people following that corridor hear about it immediately,
+  // rather than waiting for the fingerprint check to notice.
+  const corridor = getCorridor(published.corridorId);
+  if (corridor) {
+    const recipients = await subscribersFor({ corridorId: published.corridorId });
+    await notify({
+      userIds: recipients,
+      kind: 'rule-change',
+      title: `Rules changed on ${corridor.originName} → ${corridor.destinationName}`,
+      body: `${describeChange(published.action, published.payload)}. Any plan you made before today was correct when you made it — re-plan to see the current position.`,
+      link: '/',
+    });
+  }
+
+  revalidatePath('/admin/rules');
+  revalidatePath('/plan');
+  redirect('/admin/rules?published=1');
+}
+
+export async function discardDraftAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin('/admin/rules');
+  const overlayId = str(formData, 'overlayId');
+
+  const overlay = await getOverlay(overlayId);
+  const gone = await discardDraft(overlayId);
+  if (!gone) back('/admin/rules', 'That draft is no longer there, or has already been published.');
+
+  await writeAudit({
+    actorId: admin.id,
+    actorName: admin.displayName,
+    action: 'rule.discard',
+    subject: overlay ? `${overlay.ruleId} v${overlay.version}` : overlayId,
+    detail: 'Draft discarded before publication. Nothing a trader saw changed.',
+  });
+
+  revalidatePath('/admin/rules');
+  redirect('/admin/rules?discarded=1');
+}
+
+// --- FR-RPT-02: record what a shipment actually cost -----------------------
+
+export async function recordActualCostAction(formData: FormData): Promise<void> {
+  const shipmentId = str(formData, 'shipmentId');
+  const user = await requireUser(`/shipments/${shipmentId}`);
+
+  const actual = Number(str(formData, 'actualUsd'));
+  if (!Number.isFinite(actual) || actual < 0) {
+    back(`/shipments/${shipmentId}`, 'Enter what it actually cost, in US dollars.');
+  }
+
+  const ok = await recordActualCost(shipmentId, user.id, actual, str(formData, 'note'));
+  if (!ok) back(`/shipments/${shipmentId}`, 'You can record the actual cost once the shipment is delivered.');
+
+  revalidatePath(`/shipments/${shipmentId}`);
+  redirect(`/shipments/${shipmentId}?costed=1`);
 }
