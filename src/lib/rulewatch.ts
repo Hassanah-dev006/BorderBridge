@@ -14,7 +14,7 @@
 import { listSupportedCorridors, getRulesForCorridor } from './repository';
 import { ruleFingerprint, ruleSnapshot, diffSnapshots, changeSummary } from './notify';
 import type { RuleMark } from './notify';
-import { getWatermark, setWatermark, subscribersFor, notify } from './store';
+import { getWatermark, subscribersFor, notify } from './store';
 import { db } from './db';
 import type { RuleChange } from './types';
 

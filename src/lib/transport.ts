@@ -59,7 +59,7 @@ export function matchProviders(
   shipment: Shipment,
   offerings: OfferingWithProvider[],
 ): TransportMatch {
-  const { productId, quantity, corridorId } = shipment;
+  const { quantity, corridorId } = shipment;
   const product = shipment.planSnapshot.product;
   const unit = product?.unit ?? 'kg';
   const category = product?.category ?? '';

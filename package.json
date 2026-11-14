@@ -8,7 +8,9 @@
     "start": "next start",
     "test": "tsx --test tests/*.test.ts",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:admin": "node scripts/make-admin.mjs"
+    "db:admin": "node scripts/make-admin.mjs",
+    "lint": "next lint",
+    "check": "npm run lint && tsc --noEmit && npm test"
   },
   "dependencies": {
     "next": "^14.2.35",
@@ -21,7 +23,11 @@
     "@types/node": "^20.17.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
     "autoprefixer": "^10.6.1",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.35",
     "postcss": "^8.5.29",
     "tailwindcss": "^3.4.19",
     "tsx": "^4.23.15",
