@@ -574,3 +574,58 @@ export interface AccuracyReport {
   /** Rules appearing most often in the estimates that missed by the most. */
   suspectRules: { ruleId: string; appearances: number; meanAbsolutePercent: number }[];
 }
+
+// ---------------------------------------------------------------------------
+// Data subject rights and content accuracy (NFR-PRI-03, NFR-LEG-04)
+//
+// Note: ContentReport below is a user contesting a regulatory rule. It is not
+// AccuracyReport, which lives in the reporting section and measures how close the
+// cost estimates were. Two different kinds of "accuracy".
+// ---------------------------------------------------------------------------
+
+/** Everything held about one person, as NFR-PRI-03 requires it be exportable. */
+export interface PersonalDataExport {
+  exportedAt: string;
+  account: Record<string, unknown>;
+  profile: Record<string, unknown>;
+  shipments: Record<string, unknown>[];
+  borderReports: Record<string, unknown>[];
+  transportOfferings: Record<string, unknown>[];
+  transportRequests: Record<string, unknown>[];
+  marketListings: Record<string, unknown>[];
+  marketEnquiries: Record<string, unknown>[];
+  subscriptions: Record<string, unknown>[];
+  notifications: Record<string, unknown>[];
+  /** What is deliberately not in here, and why — stated rather than silently omitted. */
+  notIncluded: { what: string; why: string }[];
+}
+
+export type RequestStatus = 'open' | 'completed' | 'refused';
+
+export interface DeletionRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  reason: string;
+  status: RequestStatus;
+  response: string;
+  handledBy: string | null;
+  handledAt: string | null;
+  createdAt: string;
+}
+
+export interface ContentReport {
+  id: string;
+  userId: string | null;
+  reporterName: string;
+  ruleId: string;
+  corridorId: string;
+  whatIsWrong: string;
+  source: string;
+  status: 'open' | 'accepted' | 'rejected';
+  response: string;
+  handledBy: string | null;
+  handledAt: string | null;
+  createdAt: string;
+}

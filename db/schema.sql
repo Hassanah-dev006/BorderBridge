@@ -309,3 +309,44 @@ ALTER TABLE shipments ADD COLUMN IF NOT EXISTS actual_cost_usd NUMERIC
   CHECK (actual_cost_usd IS NULL OR actual_cost_usd >= 0);
 ALTER TABLE shipments ADD COLUMN IF NOT EXISTS actual_cost_note TEXT NOT NULL DEFAULT '';
 ALTER TABLE shipments ADD COLUMN IF NOT EXISTS actual_recorded_at TIMESTAMPTZ;
+
+-- ---------------------------------------------------------------------------
+-- Data subject rights and content accuracy (NFR-PRI-03, NFR-LEG-04)
+-- ---------------------------------------------------------------------------
+
+-- NFR-PRI-03: a user may request deletion of the data held about them. The request
+-- is recorded rather than acted on instantly, because some of it cannot simply be
+-- erased: a border report other traders relied on, or an audit entry showing who
+-- changed a rule, are records about events rather than about a person. The request
+-- gives an administrator the obligation and the decision.
+CREATE TABLE IF NOT EXISTS deletion_requests (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason       TEXT NOT NULL DEFAULT '',
+  status       TEXT NOT NULL DEFAULT 'open'
+               CHECK (status IN ('open', 'completed', 'refused')),
+  response     TEXT NOT NULL DEFAULT '',
+  handled_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  handled_at   TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, status)
+);
+
+-- NFR-LEG-04: a documented channel through which a user may report regulatory
+-- content they believe to be wrong. The whole system rests on citing its sources;
+-- a way to contest them is the other half of that promise.
+CREATE TABLE IF NOT EXISTS accuracy_reports (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+  rule_id     TEXT NOT NULL DEFAULT '',
+  corridor_id TEXT NOT NULL DEFAULT '',
+  what_is_wrong TEXT NOT NULL,
+  source      TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'open'
+              CHECK (status IN ('open', 'accepted', 'rejected')),
+  response    TEXT NOT NULL DEFAULT '',
+  handled_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+  handled_at  TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS accuracy_reports_idx ON accuracy_reports (status, created_at DESC);
