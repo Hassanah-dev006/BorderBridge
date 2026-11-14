@@ -7,15 +7,13 @@
 
 A cross-border trade planning tool for small-scale traders on the Rwanda–Uganda
 corridor. A trader states what they are moving; BorderBridge works out which documents
-that specific consignment needs, what it should cost, which border crossing to use, and
-why — citing the rule behind every answer.
+that specific consignment needs, what it should cost, which border crossing to use, and why, citing the rule behind every answer.
 
 Built for the ALU BSc Software Engineering summative, implementing the requirements in
 *BorderBridge — Project Proposal and Software Requirements Specification*.
 
 - **Live application:** <https://border-bridge-sigma.vercel.app>
-- **SRS document:** _add your Google Drive link here_
-
+- **SRS document:** <https://docs.google.com/document/d/16lNkh2KS8_J3eP-FqzChvQBI85lKpePQS88Z66KXyfw/edit?usp=sharing>
 ---
 
 ## Table of contents
