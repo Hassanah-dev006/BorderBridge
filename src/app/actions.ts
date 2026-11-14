@@ -20,10 +20,17 @@ import {
 } from '@/lib/store';
 import {
   PhoneAlreadyRegisteredError, AlreadyRequestedError,
+  AlreadyEnquiredError, OwnListingError,
   upsertOffering, setOfferingActive, getOffering, sendTransportRequest,
   respondToRequest, withdrawRequest, acceptedCarrier, rateProvider,
+  upsertListing, setListingActive, getListing, sendEnquiry, respondToEnquiry,
+  addSubscription, removeSubscription, markAllRead, notify, subscribersFor,
 } from '@/lib/store';
 import { quote } from '@/lib/transport';
+import { listingExpiry } from '@/lib/market';
+import { delaySummary, SEVERE_DELAY_MINUTES } from '@/lib/notify';
+import { getCrossing } from '@/lib/border';
+import { getProduct } from '@/lib/repository';
 import { passwordProblem, phoneProblem, normalisePhone } from '@/lib/auth';
 import {
   startSession, endSession, requireUser, currentUser,
@@ -31,7 +38,7 @@ import {
 } from '@/lib/session';
 import { buildTradePlan } from '@/lib/engines';
 import { readiness, allowedNextStatuses } from '@/lib/shipments';
-import type { BorderReport, Language, ShipmentStatus, UserRole } from '@/lib/types';
+import type { BorderReport, Language, ListingKind, ShipmentStatus, UserRole } from '@/lib/types';
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
 
@@ -273,6 +280,26 @@ export async function submitReportAction(formData: FormData): Promise<void> {
     note: str(formData, 'note'),
   });
 
+  // FR-NOT-01 — anyone following this crossing hears about a serious delay.
+  if (waitMinutes >= SEVERE_DELAY_MINUTES) {
+    const crossing = getCrossing(crossingId);
+    if (crossing) {
+      const { title, body } = delaySummary(crossing.name, Math.round(waitMinutes));
+      const recipients = await subscribersFor({
+        corridorId: crossing.corridorId,
+        crossingId: crossing.id,
+      });
+      // Not the person who just filed it — they know.
+      await notify({
+        userIds: recipients.filter((id) => id !== user?.id),
+        kind: 'border',
+        title,
+        body,
+        link: '/report',
+      });
+    }
+  }
+
   revalidatePath('/report');
   revalidatePath('/plan');
   redirect('/report?thanks=1');
@@ -411,4 +438,141 @@ export async function rateProviderAction(formData: FormData): Promise<void> {
 
   revalidatePath(`/shipments/${shipmentId}`);
   redirect(`/shipments/${shipmentId}?rated=1`);
+}
+
+// --- FR-MKT-01: publish a listing ------------------------------------------
+
+export async function saveListingAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/market');
+
+  const kind = str(formData, 'kind') as ListingKind;
+  if (kind !== 'selling' && kind !== 'buying') back('/market', 'Choose whether you are buying or selling.');
+
+  const productId = str(formData, 'productId');
+  const product = getProduct(productId);
+  if (!product) back('/market', 'Choose a product from the list.');
+
+  const country = str(formData, 'country');
+  if (!country) back('/market', 'Choose the market this listing is in.');
+
+  const rawQty = str(formData, 'quantity');
+  const quantity = rawQty === '' ? null : Number(rawQty);
+  if (quantity !== null && (!Number.isFinite(quantity) || quantity <= 0)) {
+    back('/market', 'Enter a quantity greater than zero, or leave it blank.');
+  }
+
+  const rawPrice = str(formData, 'pricePerUnit');
+  const pricePerUnit = rawPrice === '' ? null : Number(rawPrice);
+  if (pricePerUnit !== null && (!Number.isFinite(pricePerUnit) || pricePerUnit < 0)) {
+    back('/market', 'Enter a price of zero or more, or leave it blank for “price on enquiry”.');
+  }
+
+  await upsertListing(user.id, {
+    kind,
+    productId,
+    country,
+    location: str(formData, 'location'),
+    quantity,
+    unit: product.unit,
+    pricePerUnit,
+    currency: str(formData, 'currency') || 'USD',
+    note: str(formData, 'note'),
+    active: str(formData, 'active') !== 'false',
+    expiresAt: listingExpiry(),
+  });
+
+  revalidatePath('/market');
+  redirect('/market?saved=1');
+}
+
+export async function toggleListingAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/market');
+  await setListingActive(str(formData, 'listingId'), user.id, str(formData, 'active') === 'true');
+  revalidatePath('/market');
+  redirect('/market');
+}
+
+// --- FR-MKT-03: enquire, without disclosing contact details ----------------
+
+export async function sendEnquiryAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/market');
+  const listingId = str(formData, 'listingId');
+
+  const listing = await getListing(listingId);
+  if (!listing) back('/market', 'That listing is no longer available.');
+  if (listing.expired || !listing.active) back('/market', 'That listing has expired.');
+
+  try {
+    await sendEnquiry({
+      listingId,
+      fromUserId: user.id,
+      toUserId: listing.userId,
+      message: str(formData, 'message'),
+    });
+  } catch (e) {
+    if (e instanceof AlreadyEnquiredError) back('/market', 'You have already contacted that listing.');
+    if (e instanceof OwnListingError) back('/market', 'That is your own listing.');
+    throw e;
+  }
+
+  // The owner hears about it; nobody else does.
+  await notify({
+    userIds: [listing.userId],
+    kind: 'market',
+    title: 'New enquiry on your listing',
+    body: `Someone is interested in your ${listing.productName.toLowerCase()} listing. Accept to exchange contact details.`,
+    link: '/market/enquiries',
+  });
+
+  revalidatePath('/market');
+  redirect('/market?sent=1');
+}
+
+export async function respondToEnquiryAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/market/enquiries');
+  const status = str(formData, 'status');
+  if (status !== 'accepted' && status !== 'declined') back('/market/enquiries', 'Choose accept or decline.');
+
+  const enquiry = await respondToEnquiry(str(formData, 'enquiryId'), user.id, status);
+  if (!enquiry) back('/market/enquiries', 'That enquiry has already been answered.');
+
+  await notify({
+    userIds: [enquiry.fromUserId],
+    kind: 'market',
+    title: status === 'accepted' ? 'Your enquiry was accepted' : 'Your enquiry was declined',
+    body: status === 'accepted'
+      ? 'Contact details have been exchanged. You can now reach each other directly.'
+      : 'The listing owner declined. Other listings may still fit.',
+    link: '/market/enquiries',
+  });
+
+  revalidatePath('/market/enquiries');
+  redirect(`/market/enquiries?${status === 'accepted' ? 'accepted' : 'declined'}=1`);
+}
+
+// --- FR-NOT-01: subscriptions ----------------------------------------------
+
+export async function addSubscriptionAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/notifications');
+  await addSubscription(user.id, {
+    corridorId: str(formData, 'corridorId') || null,
+    crossingId: str(formData, 'crossingId') || null,
+    productCategory: str(formData, 'productCategory') || null,
+  });
+  revalidatePath('/notifications');
+  redirect('/notifications?subscribed=1');
+}
+
+export async function removeSubscriptionAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/notifications');
+  await removeSubscription(str(formData, 'subscriptionId'), user.id);
+  revalidatePath('/notifications');
+  redirect('/notifications');
+}
+
+export async function markAllReadAction(): Promise<void> {
+  const user = await requireUser('/notifications');
+  await markAllRead(user.id);
+  revalidatePath('/notifications');
+  redirect('/notifications');
 }
