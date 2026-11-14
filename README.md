@@ -197,6 +197,8 @@ npm start
 | `npm start` | Serve the production build |
 | `npm test` | Run the test suite |
 | `npm run db:migrate` | Create or update the database tables |
+| `npm run lint` | ESLint, as NFR-MNT-02 requires |
+| `npm run check` | Lint, typecheck and tests — everything a change must pass |
 
 ---
 
@@ -408,8 +410,19 @@ Which SRS requirement each part of the code realises:
 | FR-LOC-01 four languages, persisted across sessions | `i18n.ts`, `language.ts`, `/language` |
 | NFR-ACC-01 citation at point of use | every checklist item and cost line |
 | NFR-ACC-02 mark unverified output | `/plan` amber banner |
-| NFR-USA-04 44 px touch targets | `globals.css`, `ui.tsx` |
-| NFR-PRF-01 works on a slow connection | server-rendered; forms work without JavaScript |
+| NFR-USA-04 WCAG AA contrast, 44 px touch targets | `tailwind.config.ts` (ratios recorded), `ui.tsx` |
+| NFR-SEC-02 memory-hard password hashing | `auth.ts hashPassword` (scrypt) |
+| NFR-SEC-05 rate limit with progressive lockout | `auth.ts throttle` |
+| NFR-SEC-07 administrative actions audited | `store.ts writeAudit`, rule changes and account verification |
+| NFR-SEC-08 sessions expire after 30 days of inactivity | `store.ts getSessionUser` slides the window |
+| NFR-PRI-03 export your data, request deletion | `store.ts exportPersonalData`, `/privacy`, `/privacy/export` |
+| NFR-PRI-04 contact details not disclosed without consent | enforced in the queries, not in the pages |
+| NFR-LEG-01 terms of use and privacy notice | `/privacy` |
+| NFR-LEG-02 not a licensed customs agent | `/privacy`, and the footer of every page |
+| NFR-LEG-04 channel to report inaccurate content | `/report-content`, queue on `/admin` |
+| NFR-MNT-02 linting enforced | `.eslintrc.json`, `npm run check` |
+| NFR-SCA-04 a new language needs only translations | `i18n.ts` — demonstrated by FR-LOC-01 |
+| NFR-PER-03 works on a slow connection | server-rendered; forms work without JavaScript |
 
 **Every functional requirement in the SRS is now implemented.** One of them,
 FR-LOC-01, is complete in its machinery and incomplete in its content — see
@@ -440,11 +453,13 @@ npm test
 | `tests/export.test.ts` | That citations, verification dates and the limitation statement travel with the export, and that it contains no markdown a message app would mangle |
 | `tests/schema.test.ts` | Applies `db/schema.sql` to real Postgres in-process and checks constraints and cascades |
 
-Type checking:
+Everything a change must pass, in one command:
 
 ```bash
-npx tsc --noEmit
+npm run check
 ```
+
+That is lint, then type check, then the test suite — NFR-MNT-02.
 
 ---
 
@@ -479,7 +494,13 @@ Stated plainly rather than hidden:
 7. **"Printable PDF" means the browser's print-to-PDF**, against a print stylesheet,
    rather than a server-side PDF library. It adds no dependency, works on a phone,
    and produces a file the trader already knows how to save and share.
-8. **Notifications are polled, not pushed.** With no SMS gateway and no background
+8. **A deletion request is recorded, not executed instantly.** Some of what is held
+   cannot simply be erased: a border report other traders acted on, and an audit
+   entry showing who changed a regulatory rule, are records of events rather than
+   facts about a person. The request gives an administrator the obligation and the
+   judgement, and the user is told exactly what was done. Pretending otherwise would
+   be easier and less honest.
+9. **Notifications are polled, not pushed.** With no SMS gateway and no background
    service, the rule comparison runs when a user opens the notifications page. The
    detection, the diff and the fan-out to subscribers are real; only the delivery
    channel is missing, and the interface says so.

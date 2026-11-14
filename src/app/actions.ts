@@ -5,7 +5,7 @@
  *
  * These are deliberately plain form actions rather than client-side fetch calls. The
  * pages work with JavaScript disabled and on a slow connection, which is what
- * SRS NFR-PRF-01 and NFR-USA-02 ask for: the target user is on an entry-level phone
+ * SRS NFR-PER-03 and NFR-USA-02 ask for: the target user is on an entry-level phone
  * over a 3G link, not a laptop.
  *
  * Errors are reported by redirecting back with a message, so no page needs client
@@ -27,6 +27,8 @@ import {
   addSubscription, removeSubscription, markAllRead, notify, subscribersFor,
   listOverlays, createOverlay, publishOverlay, discardDraft, getOverlay,
   writeAudit, recordActualCost,
+  AlreadyRequestedDeletionError, requestDeletion, resolveDeletionRequest,
+  reportContent, resolveContentReport, listUsers,
 } from '@/lib/store';
 import { quote } from '@/lib/transport';
 import { listingExpiry } from '@/lib/market';
@@ -200,7 +202,21 @@ export async function verifyAccountAction(formData: FormData): Promise<void> {
   const target = await findUserById(targetId);
   if (!target) back('/admin', 'No such account.');
 
-  await setAdminVerified(targetId, str(formData, 'verified') === 'true');
+  const verified = str(formData, 'verified') === 'true';
+  await setAdminVerified(targetId, verified);
+
+  // NFR-SEC-07 — administrative actions on account verification are audited, not
+  // only those on regulatory content.
+  await writeAudit({
+    actorId: admin.id,
+    actorName: admin.displayName,
+    action: verified ? 'account.verify' : 'account.unverify',
+    subject: `${target.displayName} (${target.phone})`,
+    detail: verified
+      ? 'Account marked verified; its listings now rank above unverified ones.'
+      : 'Verification withdrawn.',
+  });
+
   revalidatePath('/admin');
   redirect('/admin?saved=1');
 }
@@ -758,4 +774,126 @@ export async function setLanguageAction(formData: FormData): Promise<void> {
 
   revalidatePath('/', 'layout');
   redirect('/language?saved=1');
+}
+
+// --- NFR-PRI-03: the right to erasure --------------------------------------
+
+export async function requestDeletionAction(formData: FormData): Promise<void> {
+  const user = await requireUser('/privacy');
+  try {
+    await requestDeletion(user.id, str(formData, 'reason'));
+  } catch (e) {
+    if (e instanceof AlreadyRequestedDeletionError) {
+      back('/privacy', 'You already have a deletion request open.');
+    }
+    throw e;
+  }
+
+  // Administrators need to know without polling a page they may never open.
+  const admins = await listUsers();
+  await notify({
+    userIds: admins.filter((u) => u.role === 'admin').map((u) => u.id),
+    kind: 'market',
+    title: 'A user has requested deletion of their data',
+    body: 'Law No. 058/2021 gives them that right. Handle it on the administration page.',
+    link: '/admin',
+  });
+
+  revalidatePath('/privacy');
+  redirect('/privacy?requested=1');
+}
+
+export async function resolveDeletionAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin('/admin');
+  const status = str(formData, 'status');
+  if (status !== 'completed' && status !== 'refused') back('/admin', 'Choose completed or refused.');
+
+  const resolved = await resolveDeletionRequest(
+    str(formData, 'requestId'), admin.id, status, str(formData, 'response'),
+  );
+  if (!resolved) back('/admin', 'That request has already been handled.');
+
+  await writeAudit({
+    actorId: admin.id,
+    actorName: admin.displayName,
+    action: `data.deletion.${status}`,
+    subject: `${resolved.userName} (${resolved.userPhone})`,
+    detail: resolved.response || 'No note given.',
+  });
+
+  await notify({
+    userIds: [resolved.userId],
+    kind: 'market',
+    title: status === 'completed' ? 'Your deletion request has been completed' : 'Your deletion request was not completed',
+    body: resolved.response || 'See the terms and privacy page for what this means.',
+    link: '/privacy',
+  });
+
+  revalidatePath('/admin');
+  redirect('/admin?saved=1');
+}
+
+// --- NFR-LEG-04: report regulatory content believed to be wrong ------------
+
+export async function reportContentAction(formData: FormData): Promise<void> {
+  const user = await currentUser();
+
+  const whatIsWrong = str(formData, 'whatIsWrong');
+  if (whatIsWrong.length < 10) {
+    back('/report-content', 'Tell us what is wrong — a sentence is enough, but we need one.');
+  }
+
+  await reportContent({
+    userId: user?.id ?? null,
+    ruleId: str(formData, 'ruleId'),
+    corridorId: str(formData, 'corridorId'),
+    whatIsWrong,
+    source: str(formData, 'source'),
+  });
+
+  const admins = await listUsers();
+  await notify({
+    userIds: admins.filter((u) => u.role === 'admin').map((u) => u.id),
+    kind: 'rule-change',
+    title: 'Regulatory content reported as incorrect',
+    body: whatIsWrong.slice(0, 200),
+    link: '/admin',
+  });
+
+  revalidatePath('/report-content');
+  redirect('/report-content?thanks=1');
+}
+
+export async function resolveContentReportAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin('/admin');
+  const status = str(formData, 'status');
+  if (status !== 'accepted' && status !== 'rejected') back('/admin', 'Choose accepted or rejected.');
+
+  const resolved = await resolveContentReport(
+    str(formData, 'reportId'), admin.id, status, str(formData, 'response'),
+  );
+  if (!resolved) back('/admin', 'That report has already been handled.');
+
+  await writeAudit({
+    actorId: admin.id,
+    actorName: admin.displayName,
+    action: `content.report.${status}`,
+    subject: resolved.ruleId || resolved.corridorId || 'unspecified',
+    detail: `${resolved.whatIsWrong.slice(0, 200)} — ${resolved.response || 'no note'}`,
+  });
+
+  if (resolved.userId) {
+    await notify({
+      userIds: [resolved.userId],
+      kind: 'rule-change',
+      title: status === 'accepted' ? 'Your report was accepted' : 'Your report was reviewed',
+      body: resolved.response || (status === 'accepted'
+        ? 'The rule is being amended. Thank you for checking it.'
+        : 'We checked against the instrument and are keeping the rule as it stands.'),
+      link: '/',
+    });
+  }
+
+  revalidatePath('/admin');
+  redirect('/admin?saved=1');
 }
