@@ -11,9 +11,11 @@ import { db } from './db';
 import {
   hashPassword, verifyPassword, hashOtp, otpMatches, otpExpiry, generateOtp,
   newId, sessionExpiry, normalisePhone, throttle, LOCKOUT_THRESHOLD,
+  SESSION_TTL_DAYS, SESSION_SLIDE_AFTER_HOURS,
 } from './auth';
 import type {
-  AuditEntry, BorderReport, EnquiryDetail, EnquiryStatus, Language, ListingKind,
+  AuditEntry, BorderReport, ContentReport, DeletionRequest, EnquiryDetail,
+  EnquiryStatus, Language, ListingKind, PersonalDataExport, RequestStatus,
   ListingWithOwner, Milestone, Notification, NotificationKind, OfferingWithProvider,
   OperationalMetrics, OverlayAction, OverlayStatus, ProviderRating, RegulatoryRule,
   RequestDetail, RuleOverlay, Session, Shipment, ShipmentStatus, Subscription,
@@ -251,13 +253,32 @@ export async function createSession(userId: string): Promise<Session> {
   return { id, userId, expiresAt: expires.toISOString() };
 }
 
+/**
+ * The signed-in user, and the point at which NFR-SEC-08's inactivity clock resets.
+ *
+ * The window slides on use rather than expiring absolutely, so somebody who opens
+ * BorderBridge once a week is never signed out mid-journey. It is only rewritten
+ * once a day, so an active session does not mean a write on every page load.
+ */
 export async function getSessionUser(sessionId: string): Promise<User | null> {
   const sql = db();
   const rows = await sql`
-    SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+    SELECT u.*, s.expires_at AS session_expires FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.id = ${sessionId} AND s.expires_at > NOW() LIMIT 1
   `;
-  return rows[0] ? toUser(rows[0]) : null;
+  if (!rows[0]) return null;
+
+  const expiresAt = new Date(rows[0].session_expires).getTime();
+  const fullWindow = SESSION_TTL_DAYS * 86_400_000;
+  const slideWhen = fullWindow - SESSION_SLIDE_AFTER_HOURS * 3_600_000;
+  if (expiresAt - Date.now() < slideWhen) {
+    await sql`
+      UPDATE sessions SET expires_at = NOW() + INTERVAL '${sql.unsafe(String(SESSION_TTL_DAYS))} days'
+      WHERE id = ${sessionId}
+    `;
+  }
+
+  return toUser(rows[0]);
 }
 
 export async function destroySession(sessionId: string): Promise<void> {
@@ -1157,4 +1178,205 @@ export async function shipmentsWithOutcomes(): Promise<{ shipment: Shipment; act
     actualUsd: Number(r.actual_cost_usd),
     recordedAt: new Date(r.actual_recorded_at).toISOString(),
   }));
+}
+
+// --- NFR-PRI-03: export everything held about one person --------------------
+
+/**
+ * Everything the system holds about a user, as JSON they can keep.
+ *
+ * Law No. 058/2021 gives a data subject the right of access; this is that right,
+ * made a button rather than a letter. What is deliberately NOT in the export is
+ * listed in the export itself — a password hash would be useless and dangerous to
+ * hand over, and a border report belongs to the traders who relied on it as much as
+ * to the person who filed it.
+ */
+export async function exportPersonalData(userId: string): Promise<PersonalDataExport> {
+  const sql = db();
+
+  const [acct] = await sql`SELECT * FROM users WHERE id = ${userId}`;
+  const shipments = await sql`SELECT id, corridor_id, product_id, quantity, declared_value, currency, status, created_at, actual_cost_usd FROM shipments WHERE user_id = ${userId}`;
+  const reports = await sql`SELECT id, crossing_id, category, wait_minutes, note, reported_at FROM border_reports WHERE user_id = ${userId}`;
+  const offerings = await sql`SELECT * FROM transport_offerings WHERE provider_id = ${userId}`;
+  const requests = await sql`SELECT id, shipment_id, status, quoted_usd, message, created_at FROM transport_requests WHERE trader_id = ${userId} OR provider_id = ${userId}`;
+  const listings = await sql`SELECT * FROM market_listings WHERE user_id = ${userId}`;
+  const enquiries = await sql`SELECT id, listing_id, message, status, created_at FROM market_enquiries WHERE from_user_id = ${userId} OR to_user_id = ${userId}`;
+  const subs = await sql`SELECT * FROM notification_subscriptions WHERE user_id = ${userId}`;
+  const notes = await sql`SELECT id, kind, title, body, created_at, read_at FROM notifications WHERE user_id = ${userId}`;
+
+  const plain = (rows: readonly unknown[]) => rows.map((r) => ({ ...(r as object) })) as Record<string, unknown>[];
+
+  return {
+    exportedAt: new Date().toISOString(),
+    account: {
+      id: acct?.id,
+      phone: acct?.phone,
+      displayName: acct?.display_name,
+      role: acct?.role,
+      preferredLanguage: acct?.preferred_language,
+      phoneVerifiedAt: acct?.phone_verified_at,
+      verifiedByAdmin: acct?.verified_by_admin,
+      createdAt: acct?.created_at,
+    },
+    profile: {
+      businessName: acct?.business_name,
+      homeCorridorId: acct?.home_corridor_id,
+      principalProducts: acct?.principal_products,
+    },
+    shipments: plain(shipments),
+    borderReports: plain(reports),
+    transportOfferings: plain(offerings),
+    transportRequests: plain(requests),
+    marketListings: plain(listings),
+    marketEnquiries: plain(enquiries),
+    subscriptions: plain(subs),
+    notifications: plain(notes),
+    notIncluded: [
+      {
+        what: 'Your password',
+        why: 'It is stored only as a salted scrypt hash, which cannot be turned back into your password. Handing you the hash would help nobody and endanger you.',
+      },
+      {
+        what: 'Session identifiers',
+        why: 'They are credentials. Exporting them would let anyone holding this file sign in as you.',
+      },
+      {
+        what: "Other people's messages to you, in full",
+        why: 'An enquiry you received is also personal data about the person who sent it. You see what they wrote to you; their account details are theirs to export.',
+      },
+    ],
+  };
+}
+
+// --- NFR-PRI-03: deletion requests ------------------------------------------
+
+export class AlreadyRequestedDeletionError extends Error {}
+
+export async function requestDeletion(userId: string, reason: string): Promise<void> {
+  const sql = db();
+  const open = await sql`SELECT id FROM deletion_requests WHERE user_id = ${userId} AND status = 'open'`;
+  if (open.length > 0) throw new AlreadyRequestedDeletionError();
+  await sql`
+    INSERT INTO deletion_requests (id, user_id, reason)
+    VALUES (${newId()}, ${userId}, ${reason.trim().slice(0, 600)})
+  `;
+}
+
+export async function openDeletionRequest(userId: string): Promise<DeletionRequest | null> {
+  const sql = db();
+  const rows = await sql`
+    SELECT d.*, u.display_name, u.phone FROM deletion_requests d
+    JOIN users u ON u.id = d.user_id
+    WHERE d.user_id = ${userId} AND d.status = 'open' LIMIT 1
+  `;
+  return rows[0] ? toDeletionRequest(rows[0]) : null;
+}
+
+export async function listDeletionRequests(): Promise<DeletionRequest[]> {
+  const sql = db();
+  const rows = await sql`
+    SELECT d.*, u.display_name, u.phone FROM deletion_requests d
+    JOIN users u ON u.id = d.user_id
+    ORDER BY d.created_at DESC LIMIT 100
+  `;
+  return rows.map(toDeletionRequest);
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function toDeletionRequest(r: any): DeletionRequest {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    userName: r.display_name,
+    userPhone: r.phone,
+    reason: r.reason,
+    status: r.status as RequestStatus,
+    response: r.response,
+    handledBy: r.handled_by,
+    handledAt: r.handled_at ? new Date(r.handled_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString(),
+  };
+}
+
+function toContentReport(r: any): ContentReport {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    reporterName: r.display_name ?? 'Anonymous',
+    ruleId: r.rule_id,
+    corridorId: r.corridor_id,
+    whatIsWrong: r.what_is_wrong,
+    source: r.source,
+    status: r.status as ContentReport['status'],
+    response: r.response,
+    handledBy: r.handled_by,
+    handledAt: r.handled_at ? new Date(r.handled_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString(),
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+export async function resolveDeletionRequest(
+  requestId: string, adminId: string, status: 'completed' | 'refused', response: string,
+): Promise<DeletionRequest | null> {
+  const sql = db();
+  const rows = await sql`
+    UPDATE deletion_requests
+    SET status = ${status}, response = ${response.trim().slice(0, 600)},
+        handled_by = ${adminId}, handled_at = NOW()
+    WHERE id = ${requestId} AND status = 'open'
+    RETURNING user_id
+  `;
+  if (rows.length === 0) return null;
+  const all = await listDeletionRequests();
+  return all.find((d) => d.id === requestId) ?? null;
+}
+
+// --- NFR-LEG-04: report regulatory content believed to be wrong -------------
+
+export async function reportContent(input: {
+  userId: string | null; ruleId: string; corridorId: string;
+  whatIsWrong: string; source: string;
+}): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO accuracy_reports (id, user_id, rule_id, corridor_id, what_is_wrong, source)
+    VALUES (${newId()}, ${input.userId}, ${input.ruleId.trim()}, ${input.corridorId},
+            ${input.whatIsWrong.trim().slice(0, 1000)}, ${input.source.trim().slice(0, 400)})
+  `;
+}
+
+export async function listContentReports(): Promise<ContentReport[]> {
+  const sql = db();
+  const rows = await sql`
+    SELECT a.*, u.display_name FROM accuracy_reports a
+    LEFT JOIN users u ON u.id = a.user_id
+    ORDER BY a.created_at DESC LIMIT 100
+  `;
+  return rows.map(toContentReport);
+}
+
+export async function resolveContentReport(
+  reportId: string, adminId: string, status: 'accepted' | 'rejected', response: string,
+): Promise<ContentReport | null> {
+  const sql = db();
+  const rows = await sql`
+    UPDATE accuracy_reports
+    SET status = ${status}, response = ${response.trim().slice(0, 600)},
+        handled_by = ${adminId}, handled_at = NOW()
+    WHERE id = ${reportId} AND status = 'open'
+    RETURNING id, user_id
+  `;
+  if (rows.length === 0) return null;
+  const all = await listContentReports();
+  return all.find((r) => r.id === reportId) ?? null;
+}
+
+export async function openReportCounts(): Promise<{ deletions: number; content: number }> {
+  const sql = db();
+  const rows = await sql`
+    SELECT (SELECT COUNT(*) FROM deletion_requests WHERE status = 'open')::int AS deletions,
+           (SELECT COUNT(*) FROM accuracy_reports WHERE status = 'open')::int AS content
+  `;
+  return { deletions: rows[0].deletions, content: rows[0].content };
 }

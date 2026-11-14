@@ -103,7 +103,15 @@ export function otpExpiry(now = new Date()): Date {
 
 // --- sessions (FR-ACC-03) --------------------------------------------------
 
-export const SESSION_TTL_DAYS = 14;
+/**
+ * NFR-SEC-08 — sessions expire after 30 days of INACTIVITY, not 30 days absolute.
+ * store.ts slides the window each time a session is used, so a trader who opens
+ * BorderBridge weekly is never signed out, and an abandoned session still dies.
+ */
+export const SESSION_TTL_DAYS = 30;
+
+/** Don't rewrite the row on every page load; once a day is enough to slide it. */
+export const SESSION_SLIDE_AFTER_HOURS = 24;
 export const SESSION_COOKIE = 'bb_session';
 
 export function newId(): string {
