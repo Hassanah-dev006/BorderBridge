@@ -248,3 +248,64 @@ CREATE TABLE IF NOT EXISTS rule_watermarks (
   snapshot    JSONB NOT NULL DEFAULT '[]',
   checked_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ---------------------------------------------------------------------------
+-- Rule management (FR-ADM-01, FR-ADM-02, FR-ADM-03)
+-- ---------------------------------------------------------------------------
+
+-- There is a real tension here. Constraint C1 says the knowledge base is data a
+-- trained non-developer can amend — a JSON file in version control. FR-ADM-01 says
+-- an administrator creates, amends and retires rules through the interface. A
+-- deployed application cannot write to its own source, so the two cannot both be
+-- satisfied by editing that file at runtime.
+--
+-- The resolution: data/rules.json stays the base knowledge base, hand-editable and
+-- reviewable in version control. The interface writes OVERLAYS here — versioned
+-- amendments that sit on top of the base. A published overlay wins over the base
+-- rule of the same id; a retire overlay removes it. Nothing is ever edited in
+-- place, which is NFR-ACC-05.
+CREATE TABLE IF NOT EXISTS rule_overlays (
+  id           TEXT PRIMARY KEY,
+  rule_id      TEXT NOT NULL,
+  corridor_id  TEXT NOT NULL,
+  version      INTEGER NOT NULL CHECK (version > 0),
+  action       TEXT NOT NULL CHECK (action IN ('create', 'amend', 'retire')),
+  -- The whole rule as it should read once published. A retire overlay keeps the
+  -- payload too, so the record of what was withdrawn survives.
+  payload      JSONB NOT NULL,
+  -- FR-ADM-02: a draft changes nothing a trader sees until it is published.
+  status       TEXT NOT NULL DEFAULT 'draft'
+               CHECK (status IN ('draft', 'published', 'superseded')),
+  note         TEXT NOT NULL DEFAULT '',
+  created_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  published_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  published_at TIMESTAMPTZ,
+  UNIQUE (rule_id, version)
+);
+CREATE INDEX IF NOT EXISTS rule_overlays_live_idx ON rule_overlays (corridor_id, status);
+
+-- FR-ADM-02: the publication step is recorded. The actor's name is copied in rather
+-- than only referenced, so deleting an account does not erase who published a change
+-- to the law a trader relied on.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id         TEXT PRIMARY KEY,
+  actor_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  actor_name TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  subject    TEXT NOT NULL,
+  detail     TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS audit_log_idx ON audit_log (created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Reporting (FR-RPT-02)
+-- ---------------------------------------------------------------------------
+
+-- What the movement actually cost, recorded by the trader after delivery. Without
+-- this, "estimate accuracy" has nothing to measure against.
+ALTER TABLE shipments ADD COLUMN IF NOT EXISTS actual_cost_usd NUMERIC
+  CHECK (actual_cost_usd IS NULL OR actual_cost_usd >= 0);
+ALTER TABLE shipments ADD COLUMN IF NOT EXISTS actual_cost_note TEXT NOT NULL DEFAULT '';
+ALTER TABLE shipments ADD COLUMN IF NOT EXISTS actual_recorded_at TIMESTAMPTZ;
