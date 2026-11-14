@@ -163,3 +163,88 @@ CREATE TABLE IF NOT EXISTS provider_ratings (
   UNIQUE (shipment_id)
 );
 CREATE INDEX IF NOT EXISTS provider_ratings_provider_idx ON provider_ratings (provider_id);
+
+-- ---------------------------------------------------------------------------
+-- Marketplace (FR-MKT-01, FR-MKT-02, FR-MKT-03)
+-- ---------------------------------------------------------------------------
+
+-- FR-MKT-01: what a verified user wishes to buy or sell.
+CREATE TABLE IF NOT EXISTS market_listings (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind           TEXT NOT NULL CHECK (kind IN ('selling', 'buying')),
+  product_id     TEXT NOT NULL,
+  -- The market this listing sits in: where the goods are, or are wanted.
+  country        TEXT NOT NULL,
+  location       TEXT NOT NULL DEFAULT '',
+  quantity       NUMERIC CHECK (quantity IS NULL OR quantity > 0),
+  unit           TEXT NOT NULL DEFAULT '',
+  price_per_unit NUMERIC CHECK (price_per_unit IS NULL OR price_per_unit >= 0),
+  currency       TEXT NOT NULL DEFAULT 'USD',
+  note           TEXT NOT NULL DEFAULT '',
+  active         BOOLEAN NOT NULL DEFAULT TRUE,
+  -- A listing goes stale: a price from three months ago misleads rather than helps.
+  expires_at     TIMESTAMPTZ NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, kind, product_id, country)
+);
+CREATE INDEX IF NOT EXISTS market_listings_idx ON market_listings (country, product_id, active);
+
+-- FR-MKT-03: an enquiry carries a message, never a phone number. Contact details
+-- are released only when the listing owner accepts — the same rule the transport
+-- module applies, so neither party is exposed by merely being listed.
+CREATE TABLE IF NOT EXISTS market_enquiries (
+  id           TEXT PRIMARY KEY,
+  listing_id   TEXT NOT NULL REFERENCES market_listings(id) ON DELETE CASCADE,
+  from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message      TEXT NOT NULL DEFAULT '',
+  status       TEXT NOT NULL DEFAULT 'sent'
+               CHECK (status IN ('sent', 'accepted', 'declined')),
+  responded_at TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (listing_id, from_user_id)
+);
+CREATE INDEX IF NOT EXISTS market_enquiries_to_idx ON market_enquiries (to_user_id, status);
+CREATE INDEX IF NOT EXISTS market_enquiries_from_idx ON market_enquiries (from_user_id);
+
+-- ---------------------------------------------------------------------------
+-- Notifications (FR-NOT-01, FR-NOT-02)
+-- ---------------------------------------------------------------------------
+
+-- FR-NOT-01: what a user has asked to hear about. Any field may be null, meaning
+-- "all of them" — a subscription with every field null is everything on the system.
+CREATE TABLE IF NOT EXISTS notification_subscriptions (
+  id               TEXT PRIMARY KEY,
+  user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  corridor_id      TEXT,
+  crossing_id      TEXT,
+  product_category TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, corridor_id, crossing_id, product_category)
+);
+CREATE INDEX IF NOT EXISTS notification_subscriptions_user_idx ON notification_subscriptions (user_id);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL CHECK (kind IN ('rule-change', 'border', 'transport', 'market', 'shipment')),
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL DEFAULT '',
+  link       TEXT NOT NULL DEFAULT '',
+  read_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, created_at DESC);
+
+-- FR-NOT-02: the knowledge base is a file, so a change is detected by comparing a
+-- fingerprint of the rules for a corridor against the last one we told people about.
+-- Storing the mark here rather than in the file keeps the file hand-editable.
+CREATE TABLE IF NOT EXISTS rule_watermarks (
+  corridor_id TEXT PRIMARY KEY,
+  fingerprint TEXT NOT NULL,
+  -- The signatures behind that fingerprint, so a change can be described and not
+  -- merely detected: "VAT on imports was amended", not "something changed".
+  snapshot    JSONB NOT NULL DEFAULT '[]',
+  checked_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
