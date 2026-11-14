@@ -48,6 +48,8 @@ Built for the ALU BSc Software Engineering summative, implementing the requireme
 | **Notifications** | Follow corridors, crossings and product categories; be told when the rules on that route change, or when another trader reports a long delay |
 | **Administration** | Create, amend and retire rules as versioned overlays with an explicit publication step and an audit log; verify provider accounts; see which rules are overdue for re-verification |
 | **Reporting** | Operational metrics, and how close the cost estimates have been against what traders recorded they actually paid |
+| **Export** | Print the checklist, save it as a PDF, or copy a plain-text version laid out to survive being pasted into a message |
+| **Languages** | English, French, Kiswahili and Kinyarwanda, with the choice kept across sessions and measured coverage per language |
 
 The thing that makes it more than a reference site: it computes against **your**
 consignment. Published trade information exists in plenty of places. What does not
@@ -168,7 +170,7 @@ Safe to re-run at any time — every statement is guarded with `IF NOT EXISTS`.
 npm test
 ```
 
-Expect **204 tests passing, 0 failing**. These need no database: the schema tests run
+Expect **238 tests passing, 0 failing**. These need no database: the schema tests run
 Postgres in-process through PGlite.
 
 ---
@@ -342,6 +344,9 @@ BorderBridge/
 │   ├── rulewatch.ts         Detects rule changes and notifies subscribers
 │   ├── rules-admin.ts       Rule validation, versioning and overlay merging
 │   ├── reporting.ts         Operational metrics and estimate accuracy
+│   ├── i18n.ts              The dictionary, translation and coverage
+│   ├── language.ts          Resolving the language for a request
+│   ├── export.ts            The plain-text checklist (FR-REQ-05)
 │   └── shipments.ts         Readiness and milestone rules
 ├── src/app/               Pages, server-rendered
 └── tests/                 87 tests
@@ -377,6 +382,7 @@ Which SRS requirement each part of the code realises:
 | FR-REQ-01 state a trade intention | `/` |
 | FR-REQ-02 generate the checklist | `engines.ts generateChecklist` |
 | FR-REQ-03 simplified-regime ruling | `engines.ts determineEligibility` |
+| FR-REQ-05 export the checklist, printable and as text | `export.ts plainTextChecklist`, `/plan/print` |
 | FR-CST-01 itemised landed cost | `engines.ts estimateCost` |
 | FR-CST-02 currency conversion | `engines.ts toUsd / fromUsd` |
 | FR-CST-03 per-line rule attribution | `engines.ts estimateCost`, `/plan` |
@@ -399,15 +405,15 @@ Which SRS requirement each part of the code realises:
 | FR-ADM-04 flag rules due for review | `repository.ts isOverdue`, `/admin` |
 | FR-RPT-01 operational metrics | `store.ts operationalMetrics`, `/admin/reports` |
 | FR-RPT-02 estimate accuracy against outcomes | `reporting.ts accuracyReport`, `/admin/reports` |
+| FR-LOC-01 four languages, persisted across sessions | `i18n.ts`, `language.ts`, `/language` |
 | NFR-ACC-01 citation at point of use | every checklist item and cost line |
 | NFR-ACC-02 mark unverified output | `/plan` amber banner |
 | NFR-USA-04 44 px touch targets | `globals.css`, `ui.tsx` |
 | NFR-PRF-01 works on a slow connection | server-rendered; forms work without JavaScript |
 
-Not yet implemented, and honest about it: **FR-LOC-01** (the language choice is
-stored on the profile, but every page is in English) and **FR-REQ-05** (exporting a
-checklist as a PDF or plain text). Both are within the REQ and LOC modules rather
-than modules of their own.
+**Every functional requirement in the SRS is now implemented.** One of them,
+FR-LOC-01, is complete in its machinery and incomplete in its content — see
+*Known limitations* below.
 
 ---
 
@@ -417,7 +423,7 @@ than modules of their own.
 npm test
 ```
 
-204 tests across eleven files:
+238 tests across thirteen files:
 
 | File | Covers |
 |---|---|
@@ -430,6 +436,8 @@ npm test
 | `tests/notify.test.ts` | Subscription matching, rule fingerprinting, and that editing explanatory text notifies nobody |
 | `tests/rules-admin.test.ts` | That a rule with no citation is refused, that a draft is invisible to the engines, and that the base file is never mutated |
 | `tests/reporting.test.ts` | Variance direction, bias, the confidence band each outcome is judged against, and that a thin sample is called anecdote |
+| `tests/i18n.test.ts` | That an untranslated string falls back to English rather than rendering empty, and that the coverage figure is measured from the dictionary |
+| `tests/export.test.ts` | That citations, verification dates and the limitation statement travel with the export, and that it contains no markdown a message app would mangle |
 | `tests/schema.test.ts` | Applies `db/schema.sql` to real Postgres in-process and checks constraints and cascades |
 
 Type checking:
@@ -452,14 +460,26 @@ Stated plainly rather than hidden:
    the pilot corridor has been researched and cited.
 3. **Exchange rates are cached, not live.** `catalogue.json` holds a rate table with a
    retrieval timestamp, and the interface shows its age.
-4. **All eleven SRS modules are built**, two of them with a stated gap. The traceability table above says which.
+4. **All eleven SRS modules are built**, and all 33 functional requirements implemented. The traceability table above says which.
 5. **Rules are amended as overlays, not by editing the file at runtime.** Constraint C1
    wants a hand-editable knowledge base in version control; FR-ADM-01 wants an
    administrator to amend rules through the interface. A deployed application cannot
    write to its own source, so `data/rules.json` stays the reviewable base and the
    interface writes versioned overlays on top of it. Both requirements survive; the
    cost is that the full picture is two places rather than one.
-6. **Notifications are polled, not pushed.** With no SMS gateway and no background
+6. **Two languages are translated for the interface but not for customs wording.**
+   The machinery of FR-LOC-01 is complete — every string is a key, a missing
+   translation falls back to English, and the coverage figure on `/language` is
+   measured rather than claimed. English and French are complete throughout.
+   Kiswahili and Kinyarwanda cover navigation and general interface text, and leave
+   regulatory and customs terminology in English until a fluent speaker has reviewed
+   it. That gap is deliberate: a mistranslated document name could send a trader to
+   a border with the wrong paper, which is worse than English they can ask someone
+   about.
+7. **"Printable PDF" means the browser's print-to-PDF**, against a print stylesheet,
+   rather than a server-side PDF library. It adds no dependency, works on a phone,
+   and produces a file the trader already knows how to save and share.
+8. **Notifications are polled, not pushed.** With no SMS gateway and no background
    service, the rule comparison runs when a user opens the notifications page. The
    detection, the diff and the fan-out to subscribers are real; only the delivery
    channel is missing, and the interface says so.
