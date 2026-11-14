@@ -13,9 +13,11 @@ import {
   newId, sessionExpiry, normalisePhone, throttle, LOCKOUT_THRESHOLD,
 } from './auth';
 import type {
-  BorderReport, Language, Milestone, OfferingWithProvider, ProviderRating,
-  RequestDetail, Session, Shipment, ShipmentStatus, ThrottleState, TradePlan,
-  TransportRequestStatus, User, UserRole,
+  BorderReport, EnquiryDetail, EnquiryStatus, Language, ListingKind,
+  ListingWithOwner, Milestone, Notification, NotificationKind,
+  OfferingWithProvider, ProviderRating, RequestDetail, Session, Shipment,
+  ShipmentStatus, Subscription, ThrottleState, TradePlan, TransportRequestStatus,
+  User, UserRole,
 } from './types';
 
 // --- row mapping -----------------------------------------------------------
@@ -648,4 +650,309 @@ export async function getRating(shipmentId: string): Promise<ProviderRating | nu
     comment: r.comment,
     createdAt: new Date(r.created_at).toISOString(),
   };
+}
+
+// --- marketplace (FR-MKT-01, FR-MKT-02, FR-MKT-03) -------------------------
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function toListing(r: any, now = new Date()): ListingWithOwner {
+  const expiresAt = new Date(r.expires_at).toISOString();
+  const remaining = Math.floor((new Date(expiresAt).getTime() - now.getTime()) / 86_400_000);
+  return {
+    id: r.id,
+    userId: r.user_id,
+    kind: r.kind as ListingKind,
+    productId: r.product_id,
+    country: r.country,
+    location: r.location,
+    quantity: r.quantity === null ? null : Number(r.quantity),
+    unit: r.unit,
+    pricePerUnit: r.price_per_unit === null ? null : Number(r.price_per_unit),
+    currency: r.currency,
+    note: r.note,
+    active: r.active,
+    expiresAt,
+    createdAt: new Date(r.created_at).toISOString(),
+    ownerName: r.owner_name ?? '',
+    ownerBusiness: r.owner_business ?? null,
+    ownerVerified: r.owner_verified ?? false,
+    productName: r.product_name ?? r.product_id,
+    productCategory: r.product_category ?? '',
+    daysRemaining: remaining,
+    expired: remaining < 0,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
+ * Listings with their owner's PUBLIC details joined — name, business, verification.
+ *
+ * The phone number is deliberately not selected. FR-MKT-03 releases contact details
+ * only when an enquiry is accepted, and a query that never fetches the number cannot
+ * leak it into a page by accident.
+ */
+const LISTING_SELECT = `
+  SELECT l.*,
+         u.display_name AS owner_name,
+         u.business_name AS owner_business,
+         u.verified_by_admin AS owner_verified
+  FROM market_listings l
+  JOIN users u ON u.id = l.user_id
+`;
+
+export async function listActiveListings(): Promise<ListingWithOwner[]> {
+  const sql = db();
+  const rows = await sql.unsafe(
+    `${LISTING_SELECT} WHERE l.active = TRUE AND l.expires_at > NOW() ORDER BY l.created_at DESC LIMIT 200`,
+  );
+  return rows.map((r) => toListing(r));
+}
+
+export async function listUserListings(userId: string): Promise<ListingWithOwner[]> {
+  const sql = db();
+  const rows = await sql.unsafe(`${LISTING_SELECT} WHERE l.user_id = $1 ORDER BY l.created_at DESC`, [userId]);
+  return rows.map((r) => toListing(r));
+}
+
+export async function getListing(id: string): Promise<ListingWithOwner | null> {
+  const sql = db();
+  const rows = await sql.unsafe(`${LISTING_SELECT} WHERE l.id = $1`, [id]);
+  return rows[0] ? toListing(rows[0]) : null;
+}
+
+/** FR-MKT-01 — publish or renew a listing. One per user, kind, product and market. */
+export async function upsertListing(userId: string, input: {
+  kind: ListingKind; productId: string; country: string; location: string;
+  quantity: number | null; unit: string; pricePerUnit: number | null;
+  currency: string; note: string; active: boolean; expiresAt: Date;
+}): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO market_listings (
+      id, user_id, kind, product_id, country, location, quantity, unit,
+      price_per_unit, currency, note, active, expires_at
+    ) VALUES (
+      ${newId()}, ${userId}, ${input.kind}, ${input.productId}, ${input.country},
+      ${input.location.trim()}, ${input.quantity}, ${input.unit},
+      ${input.pricePerUnit}, ${input.currency}, ${input.note.trim().slice(0, 400)},
+      ${input.active}, ${input.expiresAt}
+    )
+    ON CONFLICT (user_id, kind, product_id, country) DO UPDATE SET
+      location = EXCLUDED.location,
+      quantity = EXCLUDED.quantity,
+      unit = EXCLUDED.unit,
+      price_per_unit = EXCLUDED.price_per_unit,
+      currency = EXCLUDED.currency,
+      note = EXCLUDED.note,
+      active = EXCLUDED.active,
+      expires_at = EXCLUDED.expires_at
+  `;
+}
+
+export async function setListingActive(listingId: string, userId: string, active: boolean): Promise<void> {
+  const sql = db();
+  await sql`UPDATE market_listings SET active = ${active} WHERE id = ${listingId} AND user_id = ${userId}`;
+}
+
+export class AlreadyEnquiredError extends Error {}
+export class OwnListingError extends Error {}
+
+/** FR-MKT-03 — an enquiry carries a message, never a contact detail. */
+export async function sendEnquiry(input: {
+  listingId: string; fromUserId: string; toUserId: string; message: string;
+}): Promise<void> {
+  if (input.fromUserId === input.toUserId) throw new OwnListingError();
+  const sql = db();
+  const existing = await sql`
+    SELECT id FROM market_enquiries
+    WHERE listing_id = ${input.listingId} AND from_user_id = ${input.fromUserId} LIMIT 1
+  `;
+  if (existing.length > 0) throw new AlreadyEnquiredError();
+
+  await sql`
+    INSERT INTO market_enquiries (id, listing_id, from_user_id, to_user_id, message)
+    VALUES (${newId()}, ${input.listingId}, ${input.fromUserId}, ${input.toUserId},
+            ${input.message.trim().slice(0, 600)})
+  `;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function toEnquiry(r: any, viewerId: string): EnquiryDetail {
+  // The counterparty's number is released only on acceptance, and only to the two
+  // parties. Computed here so no page can forget the rule.
+  const accepted = r.status === 'accepted';
+  const viewerIsSender = r.from_user_id === viewerId;
+  const phone = !accepted
+    ? null
+    : viewerIsSender
+      ? (r.to_phone ?? null)
+      : (r.from_phone ?? null);
+
+  return {
+    id: r.id,
+    listingId: r.listing_id,
+    fromUserId: r.from_user_id,
+    toUserId: r.to_user_id,
+    message: r.message,
+    status: r.status as EnquiryStatus,
+    respondedAt: r.responded_at ? new Date(r.responded_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString(),
+    listingKind: r.kind as ListingKind,
+    productName: r.product_name ?? r.product_id ?? '',
+    country: r.country ?? '',
+    fromName: r.from_name ?? '',
+    toName: r.to_name ?? '',
+    counterpartyPhone: phone,
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+const ENQUIRY_SELECT = `
+  SELECT e.*, l.kind, l.product_id, l.country,
+         f.display_name AS from_name, f.phone AS from_phone,
+         t.display_name AS to_name,   t.phone AS to_phone
+  FROM market_enquiries e
+  JOIN market_listings l ON l.id = e.listing_id
+  JOIN users f ON f.id = e.from_user_id
+  JOIN users t ON t.id = e.to_user_id
+`;
+
+export async function listEnquiriesFor(userId: string): Promise<EnquiryDetail[]> {
+  const sql = db();
+  const rows = await sql.unsafe(
+    `${ENQUIRY_SELECT} WHERE e.to_user_id = $1 OR e.from_user_id = $1 ORDER BY e.created_at DESC`,
+    [userId],
+  );
+  return rows.map((r) => toEnquiry(r, userId));
+}
+
+export async function respondToEnquiry(
+  enquiryId: string, ownerId: string, status: 'accepted' | 'declined',
+): Promise<EnquiryDetail | null> {
+  const sql = db();
+  const rows = await sql`
+    UPDATE market_enquiries SET status = ${status}, responded_at = NOW()
+    WHERE id = ${enquiryId} AND to_user_id = ${ownerId} AND status = 'sent'
+    RETURNING id
+  `;
+  if (rows.length === 0) return null;
+  const all = await listEnquiriesFor(ownerId);
+  return all.find((e) => e.id === enquiryId) ?? null;
+}
+
+export async function enquiredListingIds(userId: string): Promise<string[]> {
+  const sql = db();
+  const rows = await sql`SELECT listing_id FROM market_enquiries WHERE from_user_id = ${userId}`;
+  return rows.map((r) => r.listing_id as string);
+}
+
+// --- notifications (FR-NOT-01, FR-NOT-02) ----------------------------------
+
+export async function listSubscriptions(userId: string): Promise<Subscription[]> {
+  const sql = db();
+  const rows = await sql`
+    SELECT * FROM notification_subscriptions WHERE user_id = ${userId} ORDER BY created_at
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    corridorId: r.corridor_id,
+    crossingId: r.crossing_id,
+    productCategory: r.product_category,
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
+export async function addSubscription(userId: string, input: {
+  corridorId: string | null; crossingId: string | null; productCategory: string | null;
+}): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO notification_subscriptions (id, user_id, corridor_id, crossing_id, product_category)
+    VALUES (${newId()}, ${userId}, ${input.corridorId}, ${input.crossingId}, ${input.productCategory})
+    ON CONFLICT (user_id, corridor_id, crossing_id, product_category) DO NOTHING
+  `;
+}
+
+export async function removeSubscription(subscriptionId: string, userId: string): Promise<void> {
+  const sql = db();
+  await sql`DELETE FROM notification_subscriptions WHERE id = ${subscriptionId} AND user_id = ${userId}`;
+}
+
+/** Everyone whose subscriptions cover this event. Matching is done in notify.ts. */
+export async function subscribersFor(event: {
+  corridorId?: string | null; crossingId?: string | null; productCategory?: string | null;
+}): Promise<string[]> {
+  const sql = db();
+  const rows = await sql`
+    SELECT DISTINCT user_id FROM notification_subscriptions
+    WHERE (corridor_id IS NULL OR ${event.corridorId ?? null}::text IS NULL OR corridor_id = ${event.corridorId ?? null})
+      AND (crossing_id IS NULL OR ${event.crossingId ?? null}::text IS NULL OR crossing_id = ${event.crossingId ?? null})
+      AND (product_category IS NULL OR ${event.productCategory ?? null}::text IS NULL OR product_category = ${event.productCategory ?? null})
+  `;
+  return rows.map((r) => r.user_id as string);
+}
+
+export async function notify(input: {
+  userIds: string[]; kind: NotificationKind; title: string; body?: string; link?: string;
+}): Promise<number> {
+  if (input.userIds.length === 0) return 0;
+  const sql = db();
+  const rows = input.userIds.map((uid) => ({
+    id: newId(),
+    user_id: uid,
+    kind: input.kind,
+    title: input.title.slice(0, 200),
+    body: (input.body ?? '').slice(0, 800),
+    link: input.link ?? '',
+  }));
+  await sql`INSERT INTO notifications ${sql(rows, 'id', 'user_id', 'kind', 'title', 'body', 'link')}`;
+  return rows.length;
+}
+
+export async function listNotifications(userId: string, limit = 50): Promise<Notification[]> {
+  const sql = db();
+  const rows = await sql`
+    SELECT * FROM notifications WHERE user_id = ${userId}
+    ORDER BY created_at DESC LIMIT ${limit}
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    kind: r.kind as NotificationKind,
+    title: r.title,
+    body: r.body,
+    link: r.link,
+    readAt: r.read_at ? new Date(r.read_at).toISOString() : null,
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
+export async function unreadCount(userId: string): Promise<number> {
+  const sql = db();
+  const rows = await sql`
+    SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = ${userId} AND read_at IS NULL
+  `;
+  return rows[0]?.n ?? 0;
+}
+
+export async function markAllRead(userId: string): Promise<void> {
+  const sql = db();
+  await sql`UPDATE notifications SET read_at = NOW() WHERE user_id = ${userId} AND read_at IS NULL`;
+}
+
+// --- FR-NOT-02: rule-change detection --------------------------------------
+
+export async function getWatermark(corridorId: string): Promise<string | null> {
+  const sql = db();
+  const rows = await sql`SELECT fingerprint FROM rule_watermarks WHERE corridor_id = ${corridorId}`;
+  return rows[0]?.fingerprint ?? null;
+}
+
+export async function setWatermark(corridorId: string, fingerprint: string): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO rule_watermarks (corridor_id, fingerprint) VALUES (${corridorId}, ${fingerprint})
+    ON CONFLICT (corridor_id) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, checked_at = NOW()
+  `;
 }
