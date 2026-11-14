@@ -44,6 +44,8 @@ Built for the ALU BSc Software Engineering summative, implementing the requireme
 | **Community reports** | Report the queue at a crossing; reports lose weight as they age and are discarded after twelve hours |
 | **Shipments** | Turn a plan into a trackable shipment whose plan is frozen, tick off documents as you obtain them, and record milestones to delivery |
 | **Transport** | Providers publish routes, capacity, permits and rates; traders see those who fit their consignment, ranked by verification, rating and price, and send a request the provider accepts or declines |
+| **Marketplace** | Publish what you want to buy or sell; see buyers in the destination market for the consignment you are planning; enquire without either party disclosing a phone number until the owner accepts |
+| **Notifications** | Follow corridors, crossings and product categories; be told when the rules on that route change, or when another trader reports a long delay |
 | **Administration** | Verify provider accounts; see which regulatory rules are overdue for re-verification |
 
 The thing that makes it more than a reference site: it computes against **your**
@@ -165,7 +167,7 @@ Safe to re-run at any time — every statement is guarded with `IF NOT EXISTS`.
 npm test
 ```
 
-Expect **112 tests passing, 0 failing**. These need no database: the schema tests run
+Expect **158 tests passing, 0 failing**. These need no database: the schema tests run
 Postgres in-process through PGlite.
 
 ---
@@ -334,6 +336,9 @@ BorderBridge/
 │   ├── engines.ts           Requirements and cost engines
 │   ├── border.ts            Crossing ranking and report decay
 │   ├── transport.ts         Provider matching and ranking
+│   ├── market.ts            Marketplace matching and the public-name rule
+│   ├── notify.ts            Subscription matching and rule fingerprinting
+│   ├── rulewatch.ts         Detects rule changes and notifies subscribers
 │   └── shipments.ts         Readiness and milestone rules
 ├── src/app/               Pages, server-rendered
 └── tests/                 87 tests
@@ -380,16 +385,21 @@ Which SRS requirement each part of the code realises:
 | FR-SHP-02 milestones | `shipments.ts`, `/shipments/[id]` |
 | FR-TRN-01 provider publishes their offering | `store.ts upsertOffering`, `/provider` |
 | FR-TRN-02 match and rank providers for a shipment | `transport.ts matchProviders`, `/shipments/[id]/transport` |
+| FR-MKT-01 publish a buy or sell listing | `store.ts upsertListing`, `/market` |
+| FR-MKT-02 surface relevant counterparties | `market.ts matchListings`, `/plan` and `/market` |
+| FR-MKT-03 enquire without disclosing contact details | `store.ts sendEnquiry`, `/market/enquiries` |
+| FR-NOT-01 subscribe to corridors, crossings and goods | `store.ts addSubscription`, `/notifications` |
+| FR-NOT-02 notify when the rules change | `rulewatch.ts syncRuleChanges`, `notify.ts diffSnapshots` |
 | FR-ADM-04 flag rules due for review | `repository.ts isOverdue`, `/admin` |
 | NFR-ACC-01 citation at point of use | every checklist item and cost line |
 | NFR-ACC-02 mark unverified output | `/plan` amber banner |
 | NFR-USA-04 44 px touch targets | `globals.css`, `ui.tsx` |
 | NFR-PRF-01 works on a slow connection | server-rendered; forms work without JavaScript |
 
-Not yet implemented, and honest about it: FR-MKT (marketplace), FR-NOT
-(notifications), FR-ADM-01/02/03 (rule editing through the interface), FR-RPT
-(reporting dashboard), FR-LOC-01 (the language choice is stored but the interface is
-English only), FR-REQ-05 (PDF export).
+Not yet implemented, and honest about it: FR-ADM-01/02/03 (rule editing through the
+interface — rules are edited in `data/rules.json`), FR-RPT (reporting dashboard),
+FR-LOC-01 (the language choice is stored but the interface is English only),
+FR-REQ-05 (PDF export).
 
 ---
 
@@ -399,7 +409,7 @@ English only), FR-REQ-05 (PDF export).
 npm test
 ```
 
-112 tests across seven files:
+158 tests across nine files:
 
 | File | Covers |
 |---|---|
@@ -408,6 +418,8 @@ npm test
 | `tests/auth.test.ts` | Password hashing and salting, phone normalisation, one-time codes, session signing and tamper rejection, progressive delay |
 | `tests/shipments.test.ts` | Readiness, the blocking document, forward-only milestones |
 | `tests/transport.test.ts` | Quoting and minimum charges, capacity fit, exclusion by route and product class, and the verification → rating → price ranking |
+| `tests/market.test.ts` | Listing lifetime, the public-name rule, matching buyers in the destination market, and that the listing type cannot carry a phone number |
+| `tests/notify.test.ts` | Subscription matching, rule fingerprinting, and that editing explanatory text notifies nobody |
 | `tests/schema.test.ts` | Applies `db/schema.sql` to real Postgres in-process and checks constraints and cascades |
 
 Type checking:
@@ -430,9 +442,13 @@ Stated plainly rather than hidden:
    the pilot corridor has been researched and cited.
 3. **Exchange rates are cached, not live.** `catalogue.json` holds a rate table with a
    retrieval timestamp, and the interface shows its age.
-4. **Seven of the eleven SRS modules are built.** The traceability table above says which.
+4. **Nine of the eleven SRS modules are built.** The traceability table above says which.
 5. **Rules are edited in the JSON file, not through the admin interface.** Deliberate —
    see constraint C1 — but it does mean rule changes require a redeploy.
+6. **Notifications are polled, not pushed.** With no SMS gateway and no background
+   service, the rule comparison runs when a user opens the notifications page. The
+   detection, the diff and the fan-out to subscribers are real; only the delivery
+   channel is missing, and the interface says so.
 
 ---
 
