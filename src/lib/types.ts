@@ -482,3 +482,95 @@ export interface RuleChange {
   amended: string[];
   removed: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Rule management (FR-ADM-01, FR-ADM-02, FR-ADM-03)
+// ---------------------------------------------------------------------------
+
+export type OverlayAction = 'create' | 'amend' | 'retire';
+export type OverlayStatus = 'draft' | 'published' | 'superseded';
+
+/**
+ * A versioned amendment to the knowledge base, made through the interface.
+ *
+ * The base rules stay in data/rules.json. An overlay sits on top of one: published,
+ * it replaces the base rule of the same id, or withdraws it. Nothing is edited in
+ * place (NFR-ACC-05), and nothing a trader sees changes until it is published
+ * (FR-ADM-02).
+ */
+export interface RuleOverlay {
+  id: string;
+  ruleId: string;
+  corridorId: string;
+  version: number;
+  action: OverlayAction;
+  payload: RegulatoryRule;
+  status: OverlayStatus;
+  note: string;
+  createdBy: string | null;
+  createdByName: string;
+  createdAt: string;
+  publishedBy: string | null;
+  publishedByName: string | null;
+  publishedAt: string | null;
+}
+
+/** FR-ADM-03 — what is wrong with a draft, in the words an administrator needs. */
+export interface RuleValidation {
+  valid: boolean;
+  problems: string[];
+}
+
+export interface AuditEntry {
+  id: string;
+  actorId: string | null;
+  actorName: string;
+  action: string;
+  subject: string;
+  detail: string;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Reporting (FR-RPT-01, FR-RPT-02)
+// ---------------------------------------------------------------------------
+
+export interface OperationalMetrics {
+  registrations: number;
+  verifiedAccounts: number;
+  activeUsers30d: number;
+  shipmentsCreated: number;
+  shipmentsDelivered: number;
+  checklistItemsObtained: number;
+  borderReports: number;
+  transportRequests: number;
+  marketListings: number;
+  providers: number;
+}
+
+/** One shipment whose estimate can be compared against what it actually cost. */
+export interface CostOutcome {
+  shipmentId: string;
+  productName: string;
+  estimatedUsd: number;
+  actualUsd: number;
+  /** Positive when the estimate was too low. */
+  variancePercent: number;
+  /** The rules that produced the estimate, so variance can be attributed. */
+  ruleIds: string[];
+  unverifiedAtPlanning: boolean;
+  recordedAt: string;
+}
+
+export interface AccuracyReport {
+  outcomes: CostOutcome[];
+  count: number;
+  /** Mean absolute error, as a percentage of the actual cost. */
+  meanAbsolutePercent: number | null;
+  /** Mean signed error: negative means the system under-estimates. */
+  biasPercent: number | null;
+  /** How often the actual landed inside the stated confidence range. */
+  withinConfidence: number;
+  /** Rules appearing most often in the estimates that missed by the most. */
+  suspectRules: { ruleId: string; appearances: number; meanAbsolutePercent: number }[];
+}
