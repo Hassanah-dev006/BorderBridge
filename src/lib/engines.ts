@@ -56,11 +56,13 @@ function scopeMatches(scope: RuleScope | undefined, hsCode: string, strEligible:
  * threshold, and the product must appear on the agreed common list. Each is reported
  * separately so the trader learns which one failed, not merely that it did.
  */
-export function determineEligibility(intention: TradeIntention): EligibilityResult {
+export function determineEligibility(
+  intention: TradeIntention, ruleSet?: RegulatoryRule[],
+): EligibilityResult {
   const product = getProduct(intention.productId);
   if (!product) throw new UnknownProductError(intention.productId);
 
-  const rules = getRulesForCorridor(intention.corridorId);
+  const rules = ruleSet ?? getRulesForCorridor(intention.corridorId);
   const thresholdRule = rules.find((r) => r.ruleType === 'threshold');
   const thresholdValue = thresholdRule?.thresholdValue ?? 2000;
   const thresholdCurrency = thresholdRule?.thresholdCurrency ?? 'USD';
@@ -103,11 +105,13 @@ export function determineEligibility(intention: TradeIntention): EligibilityResu
  * Each item retains a reference to the rule it came from, which is what allows the
  * citation and verification date to be displayed at the point of use (NFR-ACC-01).
  */
-export function generateChecklist(intention: TradeIntention, strEligible: boolean): ChecklistItem[] {
+export function generateChecklist(
+  intention: TradeIntention, strEligible: boolean, ruleSet?: RegulatoryRule[],
+): ChecklistItem[] {
   const product = getProduct(intention.productId);
   if (!product) throw new UnknownProductError(intention.productId);
 
-  return getRulesForCorridor(intention.corridorId)
+  return (ruleSet ?? getRulesForCorridor(intention.corridorId))
     .filter((r) => r.ruleType === 'document')
     .filter((r) => scopeMatches(r.appliesTo, product.hsCode, strEligible, product.eacOrigin))
     .map((r) => ({
@@ -131,11 +135,13 @@ export function generateChecklist(intention: TradeIntention, strEligible: boolea
  * that produced it (FR-CST-03). Duty is computed before tax because tax basis may be
  * customs value plus duty.
  */
-export function estimateCost(intention: TradeIntention, strEligible: boolean): CostEstimate {
+export function estimateCost(
+  intention: TradeIntention, strEligible: boolean, ruleSet?: RegulatoryRule[],
+): CostEstimate {
   const product = getProduct(intention.productId);
   if (!product) throw new UnknownProductError(intention.productId);
 
-  const rules = getRulesForCorridor(intention.corridorId);
+  const rules = ruleSet ?? getRulesForCorridor(intention.corridorId);
   const customsValueUsd = toUsd(intention.declaredValue, intention.currency);
   const lines: CostLine[] = [];
   let anyUnverified = false;
@@ -222,19 +228,26 @@ export function estimateCost(intention: TradeIntention, strEligible: boolean): C
 /**
  * Orchestrates the full plan — the scenario modelled in SRS Figure B.3.
  *
- * `liveReports` carries community reports submitted through FR-BRD-03. They are passed
- * in rather than read here, because this module stays free of I/O: the page fetches
- * them and hands them over, which keeps every function in this file unit testable.
+ * `liveReports` carries community reports submitted through FR-BRD-03, and `ruleSet`
+ * the rules actually in force — the JSON base with published FR-ADM overlays merged
+ * over it. Both are passed in rather than read here, because this module stays free
+ * of I/O: the page fetches them and hands them over, which keeps every function in
+ * this file unit testable.
  */
-export function buildTradePlan(intention: TradeIntention, liveReports: BorderReport[] = []): TradePlan {
+export function buildTradePlan(
+  intention: TradeIntention,
+  liveReports: BorderReport[] = [],
+  ruleSet?: RegulatoryRule[],
+): TradePlan {
   const corridor = getCorridor(intention.corridorId);
   if (!corridor || !corridor.isSupported) throw new UnsupportedCorridorError(intention.corridorId);
   const product = getProduct(intention.productId);
   if (!product) throw new UnknownProductError(intention.productId);
 
-  const eligibility = determineEligibility(intention);
-  const checklist = generateChecklist(intention, eligibility.eligible);
-  const cost = estimateCost(intention, eligibility.eligible);
+  const rules = ruleSet ?? getRulesForCorridor(intention.corridorId);
+  const eligibility = determineEligibility(intention, rules);
+  const checklist = generateChecklist(intention, eligibility.eligible, rules);
+  const cost = estimateCost(intention, eligibility.eligible, rules);
 
   const hasUnverifiedContent =
     checklist.some((c) => c.verificationStatus === 'needs-verification') ||
