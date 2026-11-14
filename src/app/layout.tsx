@@ -80,8 +80,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
         <main className="mx-auto max-w-2xl px-4 py-6">{children}</main>
 
-        <footer className="mx-auto max-w-2xl px-4 pb-10 pt-4 text-xs leading-relaxed text-gray-500">
-          {tr('app.disclaimer')}
+        <footer className="mx-auto max-w-2xl space-y-3 px-4 pb-10 pt-4 text-xs leading-relaxed text-gray-500">
+          <p>{tr('app.disclaimer')}</p>
+          <p className="flex flex-wrap gap-x-4 gap-y-1">
+            <Link href="/privacy" className="tappable inline-flex items-center font-medium text-brand underline">
+              Terms and privacy
+            </Link>
+            <Link href="/report-content" className="tappable inline-flex items-center font-medium text-brand underline">
+              Report incorrect content
+            </Link>
+            <Link href="/language" className="tappable inline-flex items-center font-medium text-brand underline">
+              {languageName(lang)}
+            </Link>
+          </p>
         </footer>
       </body>
     </html>
