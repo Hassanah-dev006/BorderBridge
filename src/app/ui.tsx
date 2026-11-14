@@ -52,7 +52,7 @@ export function Select({
 
 export function Submit({ children, variant = 'primary' }: { children: React.ReactNode; variant?: 'primary' | 'quiet' }) {
   const cls = variant === 'primary'
-    ? 'w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-[#17395A]'
+    ? 'w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-brand-dark'
     : 'w-full rounded-md border border-gray-300 bg-white px-4 py-3 text-base font-medium text-ink hover:bg-gray-50';
   return <button type="submit" className={cls}>{children}</button>;
 }
@@ -101,12 +101,19 @@ export function PageTitle({ title, subtitle, back }: { title: string; subtitle?:
   );
 }
 
-export function StatusPill({ label, tone }: { label: string; tone: 'green' | 'amber' | 'grey' | 'brand' }) {
+export function StatusPill({
+  label, tone,
+}: {
+  label: string;
+  tone: 'green' | 'amber' | 'grey' | 'brand' | 'gold';
+}) {
   const styles = {
     green: 'bg-green-100 text-green-900',
     amber: 'bg-amber-100 text-amber-900',
     grey: 'bg-gray-100 text-gray-700',
     brand: 'bg-brand-light text-brand',
+    // Gold carries the corridor's shared colour; always ink on it, never white.
+    gold: 'bg-gold-pale text-gold',
   }[tone];
   return <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${styles}`}>{label}</span>;
 }

@@ -83,7 +83,7 @@ export default async function Home() {
 
         <button
           type="submit"
-          className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-[#17395A]"
+          className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-brand-dark"
         >
           Show me what I need
         </button>
@@ -96,8 +96,8 @@ export default async function Home() {
         </p>
       )}
 
-      <section className="mt-8 rounded-md border border-brand-light bg-brand-pale p-4">
-        <h2 className="text-sm font-semibold text-brand">Why this exists</h2>
+      <section className="mt-8 rounded-md border-l-4 border-gold-bright bg-gold-pale p-4">
+        <h2 className="text-sm font-semibold text-gold">Why this exists</h2>
         <p className="mt-1 text-sm leading-relaxed text-gray-700">
           The EAC Simplified Trade Regime lets consignments under USD 2,000 cross without full
           customs procedure — but traders routinely do not know it applies to them. BorderBridge

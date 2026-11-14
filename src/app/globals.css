@@ -5,8 +5,9 @@
 :root { color-scheme: light; }
 
 body {
-  background: #F7F9FC;
-  color: #1F2937;
+  /* A warm off-white with a green cast, rather than the blue-grey it had. */
+  background: #F6F8F4;
+  color: #16281E;
   -webkit-font-smoothing: antialiased;
 }
 

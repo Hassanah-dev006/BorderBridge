@@ -33,6 +33,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={lang}>
       <body className="min-h-screen">
+        {/* The one colour both flags on this corridor share. */}
+        <div className="h-1 w-full bg-gold-bright" aria-hidden />
         <header className="bg-brand text-white">
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
             <Link href="/" className="tappable inline-flex flex-col justify-center">

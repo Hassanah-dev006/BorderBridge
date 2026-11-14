@@ -121,7 +121,7 @@ export default async function ShipmentPage({
                   className={`w-full rounded-md px-4 py-3 text-base font-semibold ${
                     s === 'cancelled'
                       ? 'border border-gray-300 bg-white text-gray-700'
-                      : 'bg-brand text-white hover:bg-[#17395A]'
+                      : 'bg-brand text-white hover:bg-brand-dark'
                   }`}
                 >
                   {s === 'cancelled' ? 'Cancel this shipment' : `Mark as ${STATUS_LABELS[s].toLowerCase()}`}
@@ -251,7 +251,7 @@ export default async function ShipmentPage({
               />
               <button
                 type="submit"
-                className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-[#17395A]"
+                className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-brand-dark"
               >
                 {rating ? 'Update rating' : 'Submit rating'}
               </button>
@@ -301,7 +301,7 @@ export default async function ShipmentPage({
             />
             <button
               type="submit"
-              className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-[#17395A]"
+              className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-brand-dark"
             >
               {actual ? 'Update what it cost' : 'Record what it cost'}
             </button>

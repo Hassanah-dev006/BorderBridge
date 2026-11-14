@@ -76,7 +76,7 @@ export default async function EnquiriesPage({
                     <input type="hidden" name="status" value="accepted" />
                     <button
                       type="submit"
-                      className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-[#17395A]"
+                      className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-brand-dark"
                     >
                       Accept
                     </button>
