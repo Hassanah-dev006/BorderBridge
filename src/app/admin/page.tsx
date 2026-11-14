@@ -6,10 +6,10 @@
  * an account, since there is deliberately no self-service route to this role.
  */
 import Link from 'next/link';
-import { verifyAccountAction } from '../actions';
+import { verifyAccountAction, resolveDeletionAction, resolveContentReportAction } from '../actions';
 import { Notice, PageTitle, StatusPill } from '../ui';
 import { requireUser } from '@/lib/session';
-import { listUsers } from '@/lib/store';
+import { listUsers, listDeletionRequests, listContentReports } from '@/lib/store';
 import { getRulesForCorridor, isOverdue, REVIEW_INTERVAL_DAYS, listCorridors } from '@/lib/repository';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +33,11 @@ export default async function AdminPage({
     );
   }
 
-  const users = await listUsers();
+  const [users, deletions, contentReports] = await Promise.all([
+    listUsers(), listDeletionRequests(), listContentReports(),
+  ]);
+  const openDeletions = deletions.filter((d) => d.status === 'open');
+  const openContent = contentReports.filter((r) => r.status === 'open');
   const overdue = listCorridors()
     .flatMap((c) => getRulesForCorridor(c.id))
     .filter((r) => isOverdue(r));
@@ -61,6 +65,97 @@ export default async function AdminPage({
           <span className="text-sm text-gray-700">Metrics and estimate accuracy</span>
         </Link>
       </div>
+
+      {/* NFR-PRI-03 — data subject requests take priority: they are a legal obligation */}
+      {openDeletions.length > 0 && (
+        <section>
+          <h2 className="text-base font-semibold text-ink">
+            Deletion requests <span className="font-normal text-gray-500">({openDeletions.length})</span>
+          </h2>
+          <p className="mt-1 text-xs text-gray-500">
+            A right under Law No. 058/2021. Erase the account and contact details; anonymise rather
+            than delete anything other traders relied on, and say which you did.
+          </p>
+          <ul className="mt-3 space-y-3">
+            {openDeletions.map((d) => (
+              <li key={d.id} className="rounded-md border border-amber-300 bg-amber-50 p-4">
+                <p className="font-medium text-ink">{d.userName}</p>
+                <p className="text-sm text-gray-700">{d.userPhone}</p>
+                {d.reason && <p className="mt-2 text-sm text-gray-700">“{d.reason}”</p>}
+                <p className="mt-1 text-xs text-gray-600">
+                  Asked {new Date(d.createdAt).toLocaleString('en-GB')}
+                </p>
+                <form action={resolveDeletionAction} className="mt-3 space-y-2">
+                  <input type="hidden" name="requestId" value={d.id} />
+                  <input
+                    name="response" required
+                    placeholder="What you did, in words they will understand"
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="submit" name="status" value="completed"
+                      className="rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-brand-dark">
+                      Completed
+                    </button>
+                    <button type="submit" name="status" value="refused"
+                      className="rounded-md border border-gray-300 bg-white px-4 py-3 text-base font-medium text-ink">
+                      Cannot complete
+                    </button>
+                  </div>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* NFR-LEG-04 — content reported as wrong */}
+      {openContent.length > 0 && (
+        <section>
+          <h2 className="text-base font-semibold text-ink">
+            Content reported as wrong <span className="font-normal text-gray-500">({openContent.length})</span>
+          </h2>
+          <ul className="mt-3 space-y-3">
+            {openContent.map((r) => (
+              <li key={r.id} className="rounded-md border border-gold-bright bg-gold-pale p-4">
+                <p className="font-medium text-ink">{r.ruleId || 'Not attributed to a rule'}</p>
+                <p className="mt-1 text-sm text-gray-800">{r.whatIsWrong}</p>
+                {r.source && (
+                  <p className="mt-1 text-sm text-gray-700">
+                    <span className="font-medium">They cite:</span> {r.source}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-gray-600">
+                  {r.reporterName} · {new Date(r.createdAt).toLocaleString('en-GB')}
+                </p>
+                <form action={resolveContentReportAction} className="mt-3 space-y-2">
+                  <input type="hidden" name="reportId" value={r.id} />
+                  <input
+                    name="response"
+                    placeholder="What you found when you checked (optional)"
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="submit" name="status" value="accepted"
+                      className="rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-brand-dark">
+                      They are right
+                    </button>
+                    <button type="submit" name="status" value="rejected"
+                      className="rounded-md border border-gray-300 bg-white px-4 py-3 text-base font-medium text-ink">
+                      Rule stands
+                    </button>
+                  </div>
+                </form>
+                {r.status === 'accepted' && (
+                  <p className="mt-2 text-xs text-gray-700">
+                    Now draft the amendment on the rule management page.
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* FR-ACC-06 */}
       <section>
