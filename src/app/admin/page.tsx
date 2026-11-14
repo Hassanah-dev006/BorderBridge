@@ -5,6 +5,7 @@
  * Reachable only by a user whose role is 'admin'. The README explains how to promote
  * an account, since there is deliberately no self-service route to this role.
  */
+import Link from 'next/link';
 import { verifyAccountAction } from '../actions';
 import { Notice, PageTitle, StatusPill } from '../ui';
 import { requireUser } from '@/lib/session';
@@ -43,6 +44,23 @@ export default async function AdminPage({
 
       {searchParams.saved && <Notice kind="ok">Saved.</Notice>}
       {searchParams.error && <Notice kind="error">{searchParams.error}</Notice>}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Link
+          href="/admin/rules"
+          className="tappable flex flex-col gap-1 rounded-md border border-brand bg-brand-pale p-4"
+        >
+          <span className="text-base font-semibold text-brand">Rule management</span>
+          <span className="text-sm text-gray-700">Create, amend and retire rules</span>
+        </Link>
+        <Link
+          href="/admin/reports"
+          className="tappable flex flex-col gap-1 rounded-md border border-brand bg-brand-pale p-4"
+        >
+          <span className="text-base font-semibold text-brand">Reporting</span>
+          <span className="text-sm text-gray-700">Metrics and estimate accuracy</span>
+        </Link>
+      </div>
 
       {/* FR-ACC-06 */}
       <section>

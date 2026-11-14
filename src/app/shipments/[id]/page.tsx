@@ -9,10 +9,14 @@
  */
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { toggleChecklistAction, advanceShipmentAction, rateProviderAction } from '../../actions';
+import {
+  toggleChecklistAction, advanceShipmentAction, rateProviderAction, recordActualCostAction,
+} from '../../actions';
 import { Notice, PageTitle, StatusPill } from '../../ui';
 import { requireUser } from '@/lib/session';
-import { getShipment, listObtained, listMilestones, acceptedCarrier, getRating } from '@/lib/store';
+import {
+  getShipment, listObtained, listMilestones, acceptedCarrier, getRating, getActualCost,
+} from '@/lib/store';
 import {
   readiness, allowedNextStatuses, STATUS_LABELS, STATUS_HINTS, shortReference, statusIndex,
 } from '@/lib/shipments';
@@ -25,17 +29,18 @@ export default async function ShipmentPage({
   params, searchParams,
 }: {
   params: { id: string };
-  searchParams: { created?: string; error?: string; rated?: string };
+  searchParams: { created?: string; error?: string; rated?: string; costed?: string };
 }) {
   const user = await requireUser(`/shipments/${params.id}`);
   const shipment = await getShipment(params.id);
   if (!shipment || shipment.userId !== user.id) notFound();
 
-  const [obtained, milestones, carrier, rating] = await Promise.all([
+  const [obtained, milestones, carrier, rating, actual] = await Promise.all([
     listObtained(shipment.id),
     listMilestones(shipment.id),
     acceptedCarrier(shipment.id),
     getRating(shipment.id),
+    getActualCost(shipment.id),
   ]);
   const r = readiness(shipment, obtained);
   const next = allowedNextStatuses(shipment.status, r.readyToTravel);
@@ -57,6 +62,12 @@ export default async function ShipmentPage({
         </Notice>
       )}
       {searchParams.rated && <Notice kind="ok">Thank you — your rating helps other traders choose.</Notice>}
+      {searchParams.costed && (
+        <Notice kind="ok">
+          Recorded. This is what lets us measure how close our estimates are, and fix the rules
+          that are wrong.
+        </Notice>
+      )}
       {searchParams.error && <Notice kind="error">{searchParams.error}</Notice>}
 
       {/* FR-SHP-02 — milestone trail */}
@@ -252,6 +263,55 @@ export default async function ShipmentPage({
           </div>
         )}
       </section>
+
+      {/* FR-RPT-02 — what it actually cost */}
+      {shipment.status === 'delivered' && (
+        <section className="border-t border-gray-200 pt-5">
+          <h2 className="text-base font-semibold text-ink">What did it actually cost?</h2>
+          {actual ? (
+            <div className="mt-3 rounded-md border border-gray-200 bg-white p-3">
+              <p className="text-sm text-gray-700">
+                You recorded <strong className="font-medium text-ink">{fmtUsd(actual.actualUsd)}</strong>{' '}
+                against an estimate of {fmtUsd(plan.cost.totalUsd)}.
+              </p>
+              {actual.note && <p className="mt-1 text-sm text-gray-700">{actual.note}</p>}
+              <p className="mt-1 text-xs text-gray-500">Submit again below to correct it.</p>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-gray-700">
+              We estimated {fmtUsd(plan.cost.totalUsd)} ± {plan.cost.confidencePercent}%. Telling us
+              what it really came to is how the estimates get better for everyone.
+            </p>
+          )}
+
+          <form action={recordActualCostAction} className="mt-3 space-y-2">
+            <input type="hidden" name="shipmentId" value={shipment.id} />
+            <label htmlFor="actualUsd" className="block text-sm font-medium text-ink">
+              Total actually paid, in US dollars
+            </label>
+            <input
+              id="actualUsd" name="actualUsd" type="number" min={0} step="0.01" required
+              inputMode="numeric" defaultValue={actual ? String(actual.actualUsd) : ''}
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base"
+            />
+            <input
+              name="note" defaultValue={actual?.note ?? ''}
+              placeholder="Anything unexpected? (optional)"
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base"
+            />
+            <button
+              type="submit"
+              className="w-full rounded-md bg-brand px-4 py-3 text-base font-semibold text-white hover:bg-[#17395A]"
+            >
+              {actual ? 'Update what it cost' : 'Record what it cost'}
+            </button>
+          </form>
+          <p className="mt-1 text-xs text-gray-500">
+            Compared against the plan frozen when this shipment was created, not against
+            today&rsquo;s rules.
+          </p>
+        </section>
+      )}
 
       {/* The frozen plan, for reference */}
       <section>

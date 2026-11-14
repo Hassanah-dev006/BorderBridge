@@ -4,7 +4,9 @@
  */
 import Link from 'next/link';
 import { buildTradePlan, fmtUsd, fmtLocal, UnsupportedCorridorError, UnknownProductError } from '@/lib/engines';
-import { recentReports, listActiveListings } from '@/lib/store';
+import { recentReports, listActiveListings, publishedOverlays } from '@/lib/store';
+import { effectiveRules } from '@/lib/rules-admin';
+import { getRulesForCorridor } from '@/lib/repository';
 import { matchListings, publicName, priceLabel, quantityLabel } from '@/lib/market';
 import { isConfigured } from '@/lib/db';
 import { currentUser } from '@/lib/session';
@@ -33,9 +35,14 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
   const listings = isConfigured() ? await listActiveListings() : [];
   const user = await currentUser();
 
+  // FR-ADM-01/02 — the rules in force are the JSON base with published overlays
+  // merged over it. Fetched here and passed in, so the engine stays free of I/O.
+  const overlays = isConfigured() ? await publishedOverlays() : [];
+  const rules = effectiveRules(getRulesForCorridor(corridorId), overlays);
+
   let plan: TradePlan;
   try {
-    plan = buildTradePlan({ corridorId, productId, quantity, declaredValue, currency }, live);
+    plan = buildTradePlan({ corridorId, productId, quantity, declaredValue, currency }, live, rules);
   } catch (e) {
     if (e instanceof UnsupportedCorridorError) {
       return (
