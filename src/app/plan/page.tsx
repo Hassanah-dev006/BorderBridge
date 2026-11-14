@@ -4,7 +4,8 @@
  */
 import Link from 'next/link';
 import { buildTradePlan, fmtUsd, fmtLocal, UnsupportedCorridorError, UnknownProductError } from '@/lib/engines';
-import { recentReports } from '@/lib/store';
+import { recentReports, listActiveListings } from '@/lib/store';
+import { matchListings, publicName, priceLabel, quantityLabel } from '@/lib/market';
 import { isConfigured } from '@/lib/db';
 import { currentUser } from '@/lib/session';
 import { createShipmentAction } from '../actions';
@@ -29,6 +30,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
   // FR-BRD-03 submissions feed the FR-BRD-01 ranking. Fetched here and passed in, so
   // the engine itself stays free of I/O and unit testable.
   const live: BorderReport[] = isConfigured() ? await recentReports() : [];
+  const listings = isConfigured() ? await listActiveListings() : [];
   const user = await currentUser();
 
   let plan: TradePlan;
@@ -248,6 +250,51 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
           by the customs authority at the border, which may reach a different figure.
         </p>
       </section>
+
+      {/* FR-MKT-02 — who might buy this, in the destination market */}
+      {(() => {
+        const market = matchListings(plan.intention, plan.corridor, plan.product, listings);
+        if (market.matched.length === 0) return null;
+        return (
+          <section className="border-t border-gray-200 pt-5">
+            <h2 className="text-base font-semibold text-ink">{market.lookingFor}</h2>
+            <p className="mt-1 text-sm text-gray-700">
+              Traders in {plan.corridor.destinationName} who have said they want these goods.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {market.matched.slice(0, 4).map((m) => (
+                <li key={m.listing.id} className="rounded-md border border-gray-200 bg-white p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-ink">{publicName(m.listing)}</p>
+                      <p className="text-sm text-gray-600">
+                        {m.reason} · {quantityLabel(m.listing)} · {priceLabel(m.listing)}
+                      </p>
+                      {m.listing.location && (
+                        <p className="text-xs text-gray-500">{m.listing.location}</p>
+                      )}
+                    </div>
+                    {m.listing.ownerVerified && (
+                      <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-900">
+                        Verified
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <Link
+              href="/market"
+              className="tappable mt-3 flex items-center justify-center rounded-md border border-brand bg-white px-4 py-3 text-base font-semibold text-brand"
+            >
+              Contact a buyer
+            </Link>
+            <p className="mt-2 text-xs text-gray-500">
+              Contact details are exchanged only once they accept your enquiry.
+            </p>
+          </section>
+        );
+      })()}
 
       {/* FR-SHP-01 — turn the plan into something trackable */}
       <section className="border-t border-gray-200 pt-5">

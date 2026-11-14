@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import './globals.css';
 import { currentUser } from '@/lib/session';
+import { unreadCount } from '@/lib/store';
+import { isConfigured } from '@/lib/db';
 
 export const metadata: Metadata = {
   title: 'BorderBridge',
@@ -16,6 +18,14 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
+  let unread = 0;
+  if (user && isConfigured()) {
+    try {
+      unread = await unreadCount(user.id);
+    } catch {
+      /* a missing badge must never stop the shell rendering */
+    }
+  }
 
   return (
     <html lang="en">
@@ -49,6 +59,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <NavLink href="/">Plan</NavLink>
               <NavLink href="/shipments">Shipments</NavLink>
               <NavLink href="/report">Border reports</NavLink>
+              <NavLink href="/market">Marketplace</NavLink>
+              {user && (
+                <NavLink href="/notifications">
+                  Alerts{unread > 0 ? ` (${unread})` : ''}
+                </NavLink>
+              )}
               {user?.role === 'provider' && <NavLink href="/provider">My offering</NavLink>}
               {user?.role === 'provider' && <NavLink href="/requests">Requests</NavLink>}
               {user?.role === 'admin' && <NavLink href="/admin">Admin</NavLink>}
