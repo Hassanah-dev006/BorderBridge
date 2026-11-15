@@ -1,0 +1,23 @@
+# NFR-CMP-01 — the device population the SRS commits to, stated once so the compiler
+# honours it rather than leaving it to a test matrix nobody reruns.
+#
+# Table 2.4 names Android 8.0 and later, iOS 14 and later, and the current plus one
+# prior major version of Chrome, Firefox, Safari and Edge. The floor that actually
+# matters is Android 8: its system WebView is Chromium 61, which has no optional
+# chaining and no nullish coalescing. Without this file the build targets modern
+# browsers and ships syntax that throws on the reference device in Table 2.3 —
+# a blank screen on exactly the handset the product is designed for.
+chrome >= 61
+edge >= 79
+firefox >= 78
+safari >= 14
+ios_saf >= 14
+android >= 8
+
+# And the current-plus-one obligation for desktop.
+last 2 chrome versions
+last 2 firefox versions
+last 2 safari versions
+last 2 edge versions
+
+not dead
