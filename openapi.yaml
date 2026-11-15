@@ -1,0 +1,190 @@
+openapi: 3.1.0
+
+# NFR-MNT-04 — "All public API endpoints shall be documented in an OpenAPI
+# specification kept current with the implementation."
+#
+# A note on what this does and does not cover, because the honest answer is more
+# useful than a padded one. BorderBridge is server-rendered: the trader interface uses
+# React server components and server actions, which are an internal transport between
+# a page and its own server and are not a public API. Documenting them here would be
+# documenting a framework detail, and it would go stale the moment a form changed.
+#
+# What IS a public API is the small set of endpoints other systems call: the USSD and
+# SMS callbacks an aggregator invokes on behalf of a trader with no data connection,
+# and the administrative research extract. Those have consumers outside this codebase,
+# so those are what this file specifies.
+#
+# tests/openapi.test.ts checks that every route handler in src/app has a path here and
+# that every path here exists as a handler, so "kept current" is enforced rather than
+# intended.
+
+info:
+  title: BorderBridge
+  version: '1.0'
+  summary: Public endpoints for the USSD/SMS fallback channel and the research extract.
+  description: |
+    BorderBridge helps small-scale cross-border traders on the Rwanda–Uganda corridor
+    find out what a consignment needs and what it will cost before they travel.
+
+    These endpoints exist for consumers outside the web application: a USSD/SMS
+    aggregator acting for a trader on a feature phone (NFR-USA-07), and an
+    administrator exporting aggregate data for research (NFR-PRI-05).
+
+    Nothing here issues binding determinations on classification, valuation or duty
+    liability. Every figure returned is guidance (NFR-LEG-02, FR-CST-04).
+  contact:
+    name: BorderBridge
+    url: https://border-bridge-sigma.vercel.app/
+  license:
+    name: MIT
+
+servers:
+  - url: https://border-bridge-sigma.vercel.app
+    description: Pilot deployment
+
+tags:
+  - name: Fallback channel
+    description: |
+      For traders without a data connection or a smartphone (NFR-USA-07). USSD rides
+      the signalling network rather than data, so it also works during the
+      telecommunications shutdowns the SRS cites around elections.
+  - name: Administration
+    description: Endpoints restricted to administrator accounts (NFR-SEC-04).
+
+paths:
+  /api/ussd:
+    post:
+      tags: [Fallback channel]
+      summary: USSD session callback
+      operationId: ussdCallback
+      description: |
+        Invoked by the aggregator on every keypress of a USSD session. The request
+        carries the cumulative input history, not a single keypress, so the session is
+        derived from it rather than stored — §3.4 requires that the interface not
+        depend on session persistence between dial-ins.
+
+        The response is plain text prefixed `CON` to keep the session open or `END` to
+        close it, and is at most 182 GSM 03.38 septets. Content longer than that is
+        truncated with a visible indicator rather than cut silently by the network.
+
+        Menu depth is five steps so that the core flow completes inside a session
+        timeout.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [sessionId, phoneNumber, text]
+              properties:
+                sessionId:
+                  type: string
+                  description: The aggregator's session identifier. Not persisted.
+                  example: ATUid_8f2c
+                serviceCode:
+                  type: string
+                  example: '*384*4411#'
+                phoneNumber:
+                  type: string
+                  description: |
+                    The dialling MSISDN. Used to address the follow-up SMS and never
+                    written to a log (NFR-MNT-05, constraint C7).
+                  example: '+250788000000'
+                text:
+                  type: string
+                  description: |
+                    Cumulative input history, star-separated. Empty on the first
+                    callback of a session.
+                  example: 1*1*2*1500
+      responses:
+        '200':
+          description: |
+            The next screen. Always 200 — an aggregator treats a non-200 as a failed
+            session and shows the trader a network error instead of the message.
+          content:
+            text/plain:
+              schema:
+                type: string
+                maxLength: 182
+              examples:
+                firstScreen:
+                  summary: Opening menu
+                  value: "CON BorderBridge\n1. English\n2. Francais\n3. Kiswahili\n4. Ikinyarwanda"
+                result:
+                  summary: Completed session
+                  value: "END 3 documents needed.\nFirst: Certificate of Origin.\nSimplified regime applies.\nEst. USD 412.\nGuidance only, not a customs decision."
+                badInput:
+                  summary: A choice outside the menu
+                  value: 'END Choose a number from the list.'
+
+  /admin/research:
+    get:
+      tags: [Administration]
+      summary: Aggregate extract for research
+      operationId: researchExtract
+      description: |
+        Aggregated counts and means by corridor, product category and month
+        (NFR-PRI-05). Counts are of distinct traders, never of movements, and measures
+        are means rather than sums.
+
+        Suppression runs twice. Any cell with fewer than five distinct traders is
+        withheld; then, wherever a group has exactly one withheld cell, a second is
+        withheld too, because otherwise the first could be recovered by subtracting
+        the published rows from the total.
+
+        The re-identification check runs before the file is produced and there is no
+        override: a check with a bypass is a check that will be bypassed.
+      responses:
+        '200':
+          description: The extract, as CSV with a commented preamble.
+          headers:
+            X-Suppressed-Cells:
+              schema: { type: integer }
+              description: How many cells were withheld, for both reasons combined.
+          content:
+            text/csv:
+              schema: { type: string }
+        '409':
+          description: |
+            The extract did not pass the re-identification check and was not produced.
+            The body explains what failed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  released: { type: boolean, enum: [false] }
+                  reason: { type: string }
+                  minimumGroup: { type: integer, example: 5 }
+                  risk:
+                    type: object
+                    properties:
+                      cells: { type: integer }
+                      published: { type: integer }
+                      suppressedBelowThreshold: { type: integer }
+                      suppressedComplementary: { type: integer }
+                      smallestPublishedGroup: { type: integer, nullable: true }
+                      safe: { type: boolean }
+                      warnings:
+                        type: array
+                        items: { type: string }
+        '404':
+          description: |
+            Returned to any caller who is not an administrator. A 403 would confirm
+            that the endpoint exists, which is more than a stranger needs to know.
+        '503':
+          description: No database is configured.
+      security:
+        - sessionCookie: []
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: bb_session
+      description: |
+        HMAC-signed session cookie issued at sign-in. Role membership is verified
+        server-side on every request; client-side restriction alone is insufficient
+        (NFR-SEC-04).
