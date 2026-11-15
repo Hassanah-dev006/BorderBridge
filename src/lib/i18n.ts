@@ -61,8 +61,11 @@ export const DICT: Record<string, Entry> = {
     rw: 'Igeragezwa Rwanda – Uganda',
   },
   'app.disclaimer': {
-    en: 'BorderBridge provides guidance based on published trade rules. It is not a licensed customs clearing agent and its estimates are not binding determinations by any customs authority.',
-    fr: "BorderBridge fournit des conseils fondés sur les règles commerciales publiées. Il n'est pas un agent en douane agréé et ses estimations ne constituent pas des décisions contraignantes d'une autorité douanière.",
+    // Rewritten for NFR-USA-03: three short sentences instead of one long one, and
+    // "only an officer can decide what you owe" in place of "not binding
+    // determinations by any customs authority". Grade 10.7 → 5.5, same meaning.
+    en: 'BorderBridge gives guidance based on published trade rules. It is not a licensed customs agent. Only an officer at the border can decide what you owe.',
+    fr: "BorderBridge donne des conseils fondés sur les règles commerciales publiées. Ce n'est pas un agent en douane agréé. Seul un agent à la frontière peut décider de ce que vous devez.",
   },
 
   // --- the planning form ---------------------------------------------------
@@ -93,8 +96,11 @@ export const DICT: Record<string, Entry> = {
   'plan.required': { en: 'required', fr: 'obligatoire', sw: 'inahitajika' },
   'plan.pendingReview': { en: 'pending re-verification', fr: 'en attente de revérification' },
   'plan.notBinding': {
-    en: 'This is an estimate, not a binding determination. Duties, taxes and fees are finally assessed by the customs authority at the border, which may reach a different figure.',
-    fr: "Ceci est une estimation et non une décision contraignante. Les droits, taxes et frais sont finalement établis par l'autorité douanière à la frontière, qui peut aboutir à un montant différent.",
+    // "Not a binding determination" is kept word for word — FR-CST-04 requires it and
+    // tests/export.test.ts asserts it travels with every export. The sentences around
+    // it carry the reading level: grade 9.7 → 6.2.
+    en: 'This is an estimate, not a binding determination. The officer at the border sets the final duties, taxes and fees. The figure may differ.',
+    fr: "Ceci est une estimation, pas une décision contraignante. L'agent à la frontière fixe les droits, taxes et frais définitifs. Le montant peut différer.",
   },
 
   // --- shipment milestones -------------------------------------------------
@@ -127,8 +133,8 @@ export const DICT: Record<string, Entry> = {
   'lang.choose': { en: 'Choose your language', fr: 'Choisissez votre langue', sw: 'Chagua lugha yako', rw: 'Hitamo ururimi' },
   'lang.saved': { en: 'Language saved.', fr: 'Langue enregistrée.', sw: 'Lugha imehifadhiwa.' },
   'lang.fallbackNote': {
-    en: 'Anything not yet translated is shown in English. Regulatory and customs wording is left in English in Kiswahili and Kinyarwanda until a fluent speaker has reviewed it — a mistranslated document name could send you to a border with the wrong paper.',
-    fr: "Tout ce qui n'est pas encore traduit s'affiche en anglais. La terminologie douanière reste en anglais en kiswahili et en kinyarwanda jusqu'à sa révision par un locuteur natif.",
+    en: 'Anything not yet translated is shown in English. In Kiswahili and Kinyarwanda, customs wording stays in English until a fluent speaker has checked it. A wrong word for a document could send you to the border with the wrong paper.',
+    fr: "Tout ce qui n'est pas encore traduit s'affiche en anglais. En kiswahili et en kinyarwanda, la terminologie douanière reste en anglais jusqu'à vérification par un locuteur natif. Un mauvais mot pour un document pourrait vous envoyer à la frontière avec le mauvais papier.",
   },
 };
 

@@ -64,8 +64,8 @@ export default async function ProviderPage({
 
       {!user.verifiedByAdmin && (
         <Notice kind="info">
-          Your offering is visible to traders, but verified providers are shown above you.
-          An administrator reviews new provider accounts.
+          Traders can see your offering. Verified providers are shown first. Our team checks
+          each new provider.
         </Notice>
       )}
 

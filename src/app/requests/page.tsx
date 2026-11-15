@@ -26,8 +26,8 @@ export default async function RequestsPage({
       <div className="space-y-4">
         <PageTitle title="Transport requests" />
         <Notice kind="info">
-          This page is for transport providers. As a trader, your requests appear on the
-          shipment itself — open a shipment and choose <em>Find transport</em>.
+          This page is for transport providers. If you are a trader, your requests appear on the
+          shipment itself. Open a shipment and choose <em>Find transport</em>.
         </Notice>
         <Link
           href="/shipments"

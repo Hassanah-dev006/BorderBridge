@@ -99,9 +99,9 @@ export default async function Home() {
       <section className="mt-8 rounded-md border-l-4 border-gold-bright bg-gold-pale p-4">
         <h2 className="text-sm font-semibold text-gold">Why this exists</h2>
         <p className="mt-1 text-sm leading-relaxed text-gray-700">
-          The EAC Simplified Trade Regime lets consignments under USD 2,000 cross without full
-          customs procedure — but traders routinely do not know it applies to them. BorderBridge
-          works that out for your specific consignment and shows the rule it relied on.
+          The EAC Simplified Trade Regime lets goods worth under USD 2,000 cross without the
+          full customs process. Many traders do not know it applies to them. BorderBridge works
+          it out for your goods and shows the rule it used.
         </p>
       </section>
     </div>

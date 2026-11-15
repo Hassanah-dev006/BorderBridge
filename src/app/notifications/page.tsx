@@ -85,8 +85,8 @@ export default async function NotificationsPage({
           <div className="mt-3 rounded-md border border-dashed border-gray-300 bg-white p-6 text-center">
             <p className="text-sm text-gray-700">Nothing yet.</p>
             <p className="mt-2 text-xs text-gray-500">
-              Subscribe below and you will be told when the rules on that route change, or when
-              another trader reports a long delay at a crossing you follow.
+              Subscribe below. We will tell you when the rules on that route change. We will also
+              tell you when another trader reports a long wait at a crossing you follow.
             </p>
           </div>
         ) : (
@@ -171,9 +171,9 @@ export default async function NotificationsPage({
         </form>
 
         <p className="mt-3 text-xs leading-relaxed text-gray-500">
-          Notifications appear here when you open BorderBridge. This prototype has no SMS gateway
-          and no background service, so nothing is pushed to your phone — the rule comparison runs
-          when this page loads.
+          Alerts appear here when you open BorderBridge. This prototype has no SMS gateway and no
+          background service. Nothing is pushed to your phone. The rules are compared when this
+          page loads.
         </p>
       </section>
     </div>

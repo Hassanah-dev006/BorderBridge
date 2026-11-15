@@ -68,8 +68,8 @@ export default async function TransportPage({
             Contact: <a href={`tel:${accepted.providerPhone}`} className="tappable font-medium text-brand underline">{accepted.providerPhone}</a>
           </p>
           <p className="mt-2 text-xs text-gray-600">
-            Contact details are exchanged only once a provider accepts, so neither party&rsquo;s
-            number is published to the other before then.
+            Contact details are shared only after a provider accepts. Until then, neither side
+            sees the other&rsquo;s number.
           </p>
         </section>
       )}

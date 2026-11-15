@@ -67,9 +67,9 @@ export default async function LanguagePage({
       <section className="border-t border-gray-200 pt-5">
         <h2 className="text-base font-semibold text-ink">Why two languages are incomplete</h2>
         <p className="mt-2 text-sm leading-relaxed text-gray-700">
-          The machinery is finished — every string is a key, a missing translation falls back to
-          English, and the figures above are measured rather than claimed. What is unfinished is
-          the regulatory vocabulary in Kiswahili and Kinyarwanda.
+          Everything that can be built is built. Every string is a key, and a missing translation
+          falls back to English. The figures above are measured, not claimed. What is missing is
+          the customs wording in Kiswahili and Kinyarwanda.
         </p>
         <p className="mt-2 text-sm leading-relaxed text-gray-700">
           That gap is deliberate. A mistranslated document name could send a trader to a border

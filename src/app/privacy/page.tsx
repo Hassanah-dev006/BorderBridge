@@ -13,27 +13,76 @@ import { Notice, PageTitle, StatusPill } from '../ui';
 import { currentUser } from '@/lib/session';
 import { withLanguage } from '@/lib/language';
 import { isConfigured } from '@/lib/db';
-import { openDeletionRequest } from '@/lib/store';
+import { openDeletionRequest, latestTermsAcceptance } from '@/lib/store';
 import { SESSION_TTL_DAYS } from '@/lib/auth';
 import { REPORT_WINDOW_HOURS } from '@/lib/border';
+import { acceptTermsAction } from '../actions';
+import {
+  REVIEWED_LANGUAGES, TERMS_EFFECTIVE, TERMS_VERSION,
+  acceptanceSummary, isReviewed, needsAcceptance,
+} from '@/lib/legal';
+import { languageName } from '@/lib/i18n';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PrivacyPage({
   searchParams,
 }: {
-  searchParams: { error?: string; requested?: string };
+  searchParams: { error?: string; requested?: string; accepted?: string };
 }) {
   const user = await currentUser();
-  const { tr } = await withLanguage();
+  const { lang, tr } = await withLanguage();
   const pending = user && isConfigured() ? await openDeletionRequest(user.id) : null;
+
+  // NFR-LEG-01 — the version and the acceptance record, shown to the person it is
+  // about rather than kept only in the database.
+  const acceptance = user && isConfigured() ? await latestTermsAcceptance(user.id) : null;
+  const mustAccept = Boolean(user) && isConfigured() && needsAcceptance(acceptance);
 
   return (
     <div className="space-y-6">
       <PageTitle
         title="Terms and privacy"
-        subtitle="What BorderBridge does with what you tell it, and what it will not do."
+        subtitle={`Version ${TERMS_VERSION}, in force since ${TERMS_EFFECTIVE}. What BorderBridge does with what you tell it, and what it will not do.`}
       />
+
+      {searchParams.accepted && <Notice kind="ok">Thank you. Your acceptance is recorded.</Notice>}
+
+      {/* NFR-LEG-01 — present the notice, record the acceptance against its version. */}
+      {user && isConfigured() && (
+        <section
+          className={`rounded-md border p-4 ${
+            mustAccept ? 'border-gold bg-gold-pale' : 'border-brand-light bg-brand-pale'
+          }`}
+        >
+          <h2 className="text-base font-semibold text-ink">
+            {mustAccept ? 'Please accept the current version' : 'Your acceptance'}
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-gray-700">
+            {acceptanceSummary(acceptance)}
+          </p>
+          {mustAccept && (
+            <form action={acceptTermsAction} className="mt-3">
+              <button
+                type="submit"
+                className="tappable inline-flex items-center rounded-md bg-brand px-4 py-3 text-sm font-medium text-white"
+              >
+                I accept version {TERMS_VERSION}
+              </button>
+            </form>
+          )}
+        </section>
+      )}
+
+      {/* The language gap, declared rather than hidden. */}
+      {!isReviewed(lang) && (
+        <Notice kind="info">
+          This notice is shown in English. It has been written and checked in{' '}
+          {REVIEWED_LANGUAGES.map((l) => languageName(l)).join(' and ')} only. These are
+          statements about your rights, and a translation nobody has checked would be worse
+          than none.
+        </Notice>
+      )}
 
       {searchParams.requested && (
         <Notice kind="ok">
@@ -47,17 +96,17 @@ export default async function PrivacyPage({
       <section className="rounded-md border-l-4 border-gold-bright bg-gold-pale p-4">
         <h2 className="text-base font-semibold text-gold">What this is not</h2>
         <p className="mt-2 text-sm leading-relaxed text-gray-800">
-          BorderBridge is not a licensed customs clearing agent, and nothing it tells you is a
-          decision by a customs authority. It reads published trade rules and works out what they
-          mean for your consignment. The authority at the border decides, and may decide
-          differently. Every cost estimate carries this statement, and you cannot dismiss it.
+          BorderBridge is not a licensed customs agent. Nothing it tells you is a decision by a
+          customs authority. It reads published trade rules and works out what they mean for your
+          goods. The officer at the border decides, and may decide differently. Every cost
+          estimate carries this note, and you cannot dismiss it.
         </p>
       </section>
 
       {/* NFR-PRI-01 */}
       <section>
         <h2 className="text-base font-semibold text-ink">What we collect, and why</h2>
-        <div className="mt-3 overflow-hidden rounded-md border border-gray-200 bg-white">
+        <div className="mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white">
           <table className="w-full text-sm">
             <tbody>
               <Row what="Your phone number" why="It is how you sign in, and how we confirm the account is yours. We do not sell it, share it, or use it for marketing." />
@@ -181,9 +230,9 @@ export default async function PrivacyPage({
       <section className="border-t border-gray-200 pt-5">
         <h2 className="text-base font-semibold text-ink">Where the rules come from</h2>
         <p className="mt-2 text-sm leading-relaxed text-gray-700">
-          Regulatory content is summarised from public instruments of the East African Community and
-          the revenue authorities of Rwanda and Uganda. Each is attributed where it is shown, with
-          the date it was last checked. Summaries are ours; errors in them are ours, not theirs.
+          Rules are summarised from public documents of the East African Community and the tax
+          authorities of Rwanda and Uganda. Each one is credited where it is shown, with the date
+          it was last checked. The summaries are ours, and so are any errors in them.
         </p>
       </section>
 
