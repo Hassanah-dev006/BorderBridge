@@ -435,6 +435,14 @@ Which SRS requirement each part of the code realises:
 | NFR-CMP-01 browser targets | `.browserslistrc` (Chromium 61 floor), verified against the build by `npm run verify:targets` |
 | NFR-CMP-02 operable from 320 px to 1920 px | `tests/compatibility.test.ts` — tables scroll rather than clip, no fixed width over 288 px |
 | NFR-LEG-01 terms accepted, with version and timestamp | `legal.ts`, `terms_acceptances` table, consent at registration, re-consent banner on a version change |
+| NFR-MNT-05 structured logs, no personal data | `log.ts` — every field redacted, users referred to by a keyed pseudonym |
+| NFR-PRI-05 anonymised research export | `research.ts`, `/admin/research` — primary and complementary suppression, release refused if the risk check fails |
+| NFR-PER-01/02/06, NFR-SCA-03 | `npm run bench` — measured at 50,000 users and 10,000 shipments |
+| NFR-REL-03 offline writes queued and replayed once | `idempotency.ts`, `idempotency_keys` table, the outbox in `public/sw.js` |
+| NFR-USA-07 USSD/SMS fallback | `ussd.ts`, `/api/ussd` — GSM 03.38 safe, 182-septet budget, no session storage |
+| NFR-MNT-04 OpenAPI kept current | `openapi.yaml`, with `tests/openapi.test.ts` comparing it against the route handlers |
+| NFR-REL-01/05/06 availability, recovery, backups | `scripts/verify-restore.mjs` and `BorderBridge-docs/OPERATIONS-RUNBOOK.md` |
+| NFR-USA-01/02, NFR-ACC-06 | `BorderBridge-docs/FIELD-PROTOCOLS.md` — these need participants, not code |
 
 **Every functional requirement in the SRS is now implemented.** One of them,
 FR-LOC-01, is complete in its machinery and incomplete in its content — see
@@ -448,7 +456,7 @@ FR-LOC-01, is complete in its machinery and incomplete in its content — see
 npm test
 ```
 
-358 tests across nineteen files:
+459 tests across twenty-five files:
 
 | File | Covers |
 |---|---|
@@ -470,6 +478,11 @@ npm test
 | `tests/readability.test.ts` | That trader-facing English stays at grade 9 or below, in the dictionary and in the screens |
 | `tests/legal.test.ts` | Who still has to accept the terms, what their own record reads back as, and that registration cannot proceed without acceptance |
 | `tests/compatibility.test.ts` | The declared browser floor, and that nothing is clipped or unreachable at 320 px |
+| `tests/log.test.ts` | That no phone number, name, credential or free-text note can reach a log line, and that a log call cannot become an outage |
+| `tests/research.test.ts` | Suppression of small groups, the subtraction attack that defeats suppressing only one cell, and that no suppressed value survives into the file |
+| `tests/idempotency.test.ts` | Who may replay a key, for how long, and that the duplicate is prevented by the database rather than by a read-then-write |
+| `tests/ussd.test.ts` | GSM 03.38 transliteration, the 182-septet budget on every screen, and session state derived rather than stored |
+| `tests/openapi.test.ts` | That the specification and the route handlers have not drifted apart, in both directions |
 
 Everything a change must pass, in one command:
 
