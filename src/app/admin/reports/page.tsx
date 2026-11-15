@@ -105,7 +105,7 @@ export default async function ReportsPage() {
                   verdict — the transport rate appears in nearly every estimate, so it will head
                   this list whether or not it is the cause.
                 </p>
-                <div className="mt-3 overflow-hidden rounded-md border border-gray-200 bg-white">
+                <div className="mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white">
                   <table className="w-full text-sm">
                     <tbody>
                       {report.suspectRules.map((s) => (
