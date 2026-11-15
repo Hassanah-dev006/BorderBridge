@@ -2,7 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import Link from 'next/link';
 import './globals.css';
 import { currentUser } from '@/lib/session';
-import { unreadCount } from '@/lib/store';
+import { unreadCount, latestTermsAcceptance } from '@/lib/store';
+import { TERMS_VERSION, needsAcceptance } from '@/lib/legal';
 import { isConfigured } from '@/lib/db';
 import { withLanguage } from '@/lib/language';
 import { languageName } from '@/lib/i18n';
@@ -35,9 +36,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const user = await currentUser();
   const { lang, tr } = await withLanguage();
   let unread = 0;
+  // NFR-LEG-01 — whether this user still needs to accept the current notice.
+  let mustAccept = false;
   if (user && isConfigured()) {
     try {
       unread = await unreadCount(user.id);
+      mustAccept = needsAcceptance(await latestTermsAcceptance(user.id));
     } catch {
       /* a missing badge must never stop the shell rendering */
     }
@@ -97,6 +101,25 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </nav>
         </header>
+
+        {/* NFR-LEG-01 — a changed notice is re-presented rather than assumed accepted.
+            A banner rather than a wall: blocking a trader from a checklist they need
+            at a border, to make them re-read a privacy notice, would be the wrong
+            trade. It is persistent instead, and does not dismiss. */}
+        {mustAccept && (
+          <div className="border-b border-gold bg-gold-pale">
+            <div className="mx-auto flex max-w-2xl items-start gap-2 px-4 py-2 text-sm text-ink">
+              <span aria-hidden className="font-semibold">!</span>
+              <p className="leading-snug">
+                Our terms and privacy notice have changed (version {TERMS_VERSION}).{' '}
+                <Link href="/privacy" className="font-medium text-brand underline">
+                  Read them and accept
+                </Link>
+                .
+              </p>
+            </div>
+          </div>
+        )}
 
         <main className="mx-auto max-w-2xl px-4 py-6">{children}</main>
 
