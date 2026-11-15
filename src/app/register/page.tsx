@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { registerAction } from '../actions';
 import { Field, Select, Submit, Notice, PageTitle, DatabaseMissing } from '../ui';
 import { isConfigured } from '@/lib/db';
+import { TERMS_VERSION } from '@/lib/legal';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,30 @@ export default function RegisterPage({ searchParams }: { searchParams: { error?:
           label="Password" name="password" type="password" required
           autoComplete="new-password" hint="At least 8 characters, and not only digits."
         />
+
+        {/* NFR-LEG-01 — presented before the account exists, and recorded against the
+            version, so the record can answer what was agreed to rather than only that
+            something was. Unticked by default: a pre-ticked box records a click, not
+            a decision. */}
+        <div className="rounded-md border border-brand-light bg-brand-pale p-3">
+          <label htmlFor="acceptTerms" className="flex items-start gap-3 text-sm text-ink">
+            <input
+              id="acceptTerms" name="acceptTerms" type="checkbox" value="yes" required
+              className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-400"
+              style={{ minHeight: 'auto' }}
+            />
+            <span>
+              I have read and accept the{' '}
+              <Link href="/privacy" className="font-medium text-brand underline" target="_blank">
+                terms of use and privacy notice
+              </Link>{' '}
+              (version {TERMS_VERSION}).
+            </span>
+          </label>
+          <p className="mt-2 text-xs leading-relaxed text-gray-600">
+            It says what we keep, why, and what we will never do with it. It is short.
+          </p>
+        </div>
 
         <Submit>Create account</Submit>
       </form>

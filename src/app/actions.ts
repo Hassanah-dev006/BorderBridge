@@ -33,6 +33,8 @@ import {
 import { quote } from '@/lib/transport';
 import { listingExpiry } from '@/lib/market';
 import { isLanguage } from '@/lib/i18n';
+import { TERMS_VERSION, noticeLanguage } from '@/lib/legal';
+import { recordTermsAcceptance } from '@/lib/store';
 import { setLanguageCookie } from '@/lib/language';
 import { delaySummary, SEVERE_DELAY_MINUTES } from '@/lib/notify';
 import { getCrossing } from '@/lib/border';
@@ -70,6 +72,13 @@ export async function registerAction(formData: FormData): Promise<void> {
 
   if (displayName.length < 2) back('/register', 'Enter your name.');
 
+  // NFR-LEG-01 — checked server-side as well as in the browser. A requirement enforced
+  // only by the `required` attribute is enforced only for people using a browser that
+  // honours it, which is not a claim this project can make about its device population.
+  if (str(formData, 'acceptTerms') !== 'yes') {
+    back('/register', 'Please accept the terms of use and privacy notice to continue.');
+  }
+
   const phoneIssue = phoneProblem(phone);
   if (phoneIssue) back('/register', phoneIssue);
 
@@ -86,6 +95,11 @@ export async function registerAction(formData: FormData): Promise<void> {
     }
     throw e;
   }
+
+  // NFR-LEG-01 — timestamp and version reference, in the language they read it in.
+  // Recorded before verification, because the acceptance happened at registration
+  // whether or not the code is ever confirmed.
+  await recordTermsAcceptance(userId, TERMS_VERSION, noticeLanguage(language));
 
   const code = await issueOtp(userId, 'verify-phone');
   setPendingUser(userId);
@@ -896,4 +910,20 @@ export async function resolveContentReportAction(formData: FormData): Promise<vo
 
   revalidatePath('/admin');
   redirect('/admin?saved=1');
+}
+
+// --- NFR-LEG-01: accepting an updated notice -------------------------------
+
+/**
+ * Record acceptance of the current version by someone who already has an account.
+ *
+ * Raising TERMS_VERSION asks everybody again. The alternative — treating one
+ * acceptance as consent to whatever the notice later becomes — would make the record
+ * meaningless, which is the thing the version reference exists to prevent.
+ */
+export async function acceptTermsAction(): Promise<void> {
+  const user = await requireUser('/privacy');
+  await recordTermsAcceptance(user.id, TERMS_VERSION, noticeLanguage(user.preferredLanguage));
+  revalidatePath('/', 'layout');
+  redirect('/privacy?accepted=1');
 }
