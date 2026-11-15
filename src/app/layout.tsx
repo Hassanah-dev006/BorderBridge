@@ -6,16 +6,29 @@ import { unreadCount } from '@/lib/store';
 import { isConfigured } from '@/lib/db';
 import { withLanguage } from '@/lib/language';
 import { languageName } from '@/lib/i18n';
+import OfflineStatus from './offline-status';
+import ServiceWorker from './service-worker';
 
 export const metadata: Metadata = {
   title: 'BorderBridge',
   description: 'Know what your consignment needs, and what it will cost, before you travel.',
+  applicationName: 'BorderBridge',
+  appleWebApp: { capable: true, title: 'BorderBridge', statusBarStyle: 'default' },
+  icons: {
+    icon: [
+      { url: '/icon.png', sizes: '64x64', type: 'image/png' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // Matches the header, so the status bar continues the page in standalone mode.
+  themeColor: '#1B5E3F',
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -30,11 +43,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     }
   }
 
+  // Stamped into the markup so that a page replayed from the cache can say how old it
+  // is (Section 3.1, NFR-REL-02). The service worker stores this response whole, so
+  // the timestamp travels with the content it describes.
+  const renderedAt = new Date().toISOString();
+
   return (
     <html lang={lang}>
       <body className="min-h-screen">
+        <ServiceWorker accountKey={user?.id ?? 'anonymous'} />
         {/* The one colour both flags on this corridor share. */}
         <div className="h-1 w-full bg-gold-bright" aria-hidden />
+        <OfflineStatus renderedAt={renderedAt} />
         <header className="bg-brand text-white">
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
             <Link href="/" className="tappable inline-flex flex-col justify-center">
