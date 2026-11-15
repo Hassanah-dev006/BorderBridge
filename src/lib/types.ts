@@ -596,6 +596,8 @@ export interface PersonalDataExport {
   marketEnquiries: Record<string, unknown>[];
   subscriptions: Record<string, unknown>[];
   notifications: Record<string, unknown>[];
+  /** NFR-LEG-01 — which version of the terms you accepted, in which language, and when. */
+  termsAcceptances: Record<string, unknown>[];
   /** What is deliberately not in here, and why — stated rather than silently omitted. */
   notIncluded: { what: string; why: string }[];
 }

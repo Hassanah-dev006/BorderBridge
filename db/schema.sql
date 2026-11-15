@@ -350,3 +350,23 @@ CREATE TABLE IF NOT EXISTS accuracy_reports (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS accuracy_reports_idx ON accuracy_reports (status, created_at DESC);
+
+-- NFR-LEG-01: "shall record the user's acceptance with a timestamp and version
+-- reference". A row per acceptance rather than a column on users, because the
+-- question that gets asked later is not "did they agree?" but "what did they agree
+-- to, and when?" — and that needs the history, not the latest value.
+--
+-- The language is recorded too. A trader who accepted the notice in French accepted
+-- the French wording, and if the two ever diverge, the record says which one they
+-- actually read.
+CREATE TABLE IF NOT EXISTS terms_acceptances (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  version     TEXT NOT NULL,
+  language    TEXT NOT NULL CHECK (language IN ('en', 'fr', 'sw', 'rw')),
+  accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Accepting the same version twice is the same fact, not two facts.
+  UNIQUE (user_id, version)
+);
+CREATE INDEX IF NOT EXISTS terms_acceptances_user_idx
+  ON terms_acceptances (user_id, accepted_at DESC);

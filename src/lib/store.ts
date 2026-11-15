@@ -21,6 +21,7 @@ import type {
   RequestDetail, RuleOverlay, Session, Shipment, ShipmentStatus, Subscription,
   ThrottleState, TradePlan, TransportRequestStatus, User, UserRole,
 } from './types';
+import type { TermsAcceptance } from './legal';
 
 // --- row mapping -----------------------------------------------------------
 
@@ -1203,6 +1204,9 @@ export async function exportPersonalData(userId: string): Promise<PersonalDataEx
   const enquiries = await sql`SELECT id, listing_id, message, status, created_at FROM market_enquiries WHERE from_user_id = ${userId} OR to_user_id = ${userId}`;
   const subs = await sql`SELECT * FROM notification_subscriptions WHERE user_id = ${userId}`;
   const notes = await sql`SELECT id, kind, title, body, created_at, read_at FROM notifications WHERE user_id = ${userId}`;
+  // NFR-LEG-01 and NFR-PRI-03 together: what you agreed to, and when, is a fact about
+  // you, so it belongs in the export rather than only in our records.
+  const accepted = await sql`SELECT version, language, accepted_at FROM terms_acceptances WHERE user_id = ${userId} ORDER BY accepted_at DESC`;
 
   const plain = (rows: readonly unknown[]) => rows.map((r) => ({ ...(r as object) })) as Record<string, unknown>[];
 
@@ -1231,6 +1235,7 @@ export async function exportPersonalData(userId: string): Promise<PersonalDataEx
     marketEnquiries: plain(enquiries),
     subscriptions: plain(subs),
     notifications: plain(notes),
+    termsAcceptances: plain(accepted),
     notIncluded: [
       {
         what: 'Your password',
@@ -1379,4 +1384,59 @@ export async function openReportCounts(): Promise<{ deletions: number; content: 
            (SELECT COUNT(*) FROM accuracy_reports WHERE status = 'open')::int AS content
   `;
   return { deletions: rows[0].deletions, content: rows[0].content };
+}
+
+// --- terms of use and the privacy notice (NFR-LEG-01) ----------------------
+
+/**
+ * Record that this user accepted this version, in the language they read it in.
+ *
+ * Idempotent on (user, version): re-accepting the same text is the same fact, and the
+ * original timestamp is the one that matters, so a repeat does not overwrite it.
+ */
+export async function recordTermsAcceptance(
+  userId: string,
+  version: string,
+  language: Language,
+): Promise<void> {
+  const sql = db();
+  await sql`
+    INSERT INTO terms_acceptances (id, user_id, version, language)
+    VALUES (${newId()}, ${userId}, ${version}, ${language})
+    ON CONFLICT (user_id, version) DO NOTHING
+  `;
+}
+
+/** The most recent acceptance, or null if this user has never accepted anything. */
+export async function latestTermsAcceptance(userId: string): Promise<TermsAcceptance | null> {
+  const sql = db();
+  const rows = await sql`
+    SELECT version, language, accepted_at
+      FROM terms_acceptances
+     WHERE user_id = ${userId}
+     ORDER BY accepted_at DESC
+     LIMIT 1
+  `;
+  if (rows.length === 0) return null;
+  return {
+    version: rows[0].version,
+    language: rows[0].language as Language,
+    acceptedAt: new Date(rows[0].accepted_at).toISOString(),
+  };
+}
+
+/** Every acceptance this user has given, newest first — for the data export. */
+export async function termsAcceptances(userId: string): Promise<TermsAcceptance[]> {
+  const sql = db();
+  const rows = await sql`
+    SELECT version, language, accepted_at
+      FROM terms_acceptances
+     WHERE user_id = ${userId}
+     ORDER BY accepted_at DESC
+  `;
+  return rows.map((r) => ({
+    version: r.version,
+    language: r.language as Language,
+    acceptedAt: new Date(r.accepted_at).toISOString(),
+  }));
 }
