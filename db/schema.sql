@@ -103,6 +103,12 @@ CREATE TABLE IF NOT EXISTS border_reports (
   reported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS border_reports_crossing_idx ON border_reports (crossing_id, reported_at DESC);
+-- The crossing index above cannot serve the query that fetches every report in the
+-- last twelve hours across all crossings, because that query does not constrain the
+-- leading column. That is the query on the critical path of every trade plan
+-- (FR-BRD-01), so it gets its own index. Found by scripts/benchmark.ts at the volume
+-- NFR-SCA-03 commits to, where it was the slowest query on the page.
+CREATE INDEX IF NOT EXISTS border_reports_recent_idx ON border_reports (reported_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Transport (FR-TRN-01, FR-TRN-02)
@@ -370,3 +376,26 @@ CREATE TABLE IF NOT EXISTS terms_acceptances (
 );
 CREATE INDEX IF NOT EXISTS terms_acceptances_user_idx
   ON terms_acceptances (user_id, accepted_at DESC);
+
+-- NFR-REL-03 and §3.4: "Each queued action shall carry an idempotency key so that a
+-- retried request cannot be applied twice."
+--
+-- The ambiguous case is the one that happens: the server wrote the row and the
+-- response was lost on the way back. The client cannot distinguish that from a request
+-- that never arrived, so it retries. Without this table the crossing would then carry
+-- two reports of the same queue from the same person — and FR-BRD-05 averages reports,
+-- so a duplicate moves a number other traders act on.
+--
+-- The primary key does the work: the second INSERT fails, which is the signal to
+-- return the first result rather than repeat the action.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  key        TEXT PRIMARY KEY,
+  user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
+  action     TEXT NOT NULL,
+  result     JSONB,
+  -- Null until the action finishes. A row with no completion is an attempt that is
+  -- still in flight, which a retry must wait for rather than duplicate.
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idempotency_keys_age_idx ON idempotency_keys (created_at);
