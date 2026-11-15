@@ -16,6 +16,7 @@ import { ruleFingerprint, ruleSnapshot, diffSnapshots, changeSummary } from './n
 import type { RuleMark } from './notify';
 import { getWatermark, subscribersFor, notify } from './store';
 import { db } from './db';
+import { log } from './log';
 import type { RuleChange } from './types';
 
 /** The stored snapshot behind a corridor's watermark. */
@@ -98,7 +99,10 @@ export async function syncRuleChanges(): Promise<RuleChange[]> {
 export async function syncRuleChangesQuietly(): Promise<void> {
   try {
     await syncRuleChanges();
-  } catch {
-    /* a page that renders without its badge is better than a page that does not render */
+  } catch (error) {
+    // A page that renders without its badge is better than a page that does not
+    // render — but a failure that is swallowed in silence is one nobody fixes, so it
+    // is swallowed in writing instead (NFR-MNT-05).
+    log.error('rulewatch.syncFailed', { error });
   }
 }

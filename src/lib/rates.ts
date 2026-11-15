@@ -15,6 +15,8 @@
  * making. So anything that does not validate completely is discarded completely.
  */
 
+import { log } from './log';
+
 export type RateTable = {
   base: string;
   rates: Record<string, number>;
@@ -202,6 +204,16 @@ export async function refreshRates(required: string[], now: Date = new Date()): 
   const resolved = resolveRates(live, curated, now);
 
   if (live.ok) setLiveRates(live.table);
+
+  // NFR-MNT-05 — a degradation that nobody can see is one nobody fixes. The reason is
+  // a fixed enum and the currencies are currency codes, so there is nothing personal
+  // here; `required` is derived from the corridor, not from the trader.
+  if (resolved.degraded) {
+    log.warn('rates.degraded', { reason: resolved.failure, ageHours: resolved.ageHours, required });
+  } else if (resolved.stale) {
+    log.info('rates.stale', { ageHours: resolved.ageHours });
+  }
+
   return resolved;
 }
 
@@ -209,7 +221,8 @@ export async function refreshRates(required: string[], now: Date = new Date()): 
 export async function refreshRatesQuietly(required: string[]): Promise<ResolvedRates | null> {
   try {
     return await refreshRates(required);
-  } catch {
+  } catch (error) {
+    log.error('rates.refreshFailed', { error });
     return null;
   }
 }
