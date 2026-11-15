@@ -20,23 +20,55 @@ export default function OfflineStatus({ renderedAt }: { renderedAt: string }) {
   // ignore it, which is the opposite of what it is for.
   const [offline, setOffline] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
+  // NFR-REL-03 — how many actions are waiting to be sent.
+  const [pending, setPending] = useState(0);
 
   useEffect(() => {
     const update = () => {
       setOffline(!navigator.onLine);
       setNow(new Date());
     };
+
+    const backOnline = () => {
+      update();
+      // Background Sync is not available in Safari, which Table 2.4 commits to, so the
+      // page asks for the flush rather than relying on a feature half the device
+      // population does not have.
+      navigator.serviceWorker?.controller?.postMessage({ type: 'flush-outbox' });
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'outbox') setPending(Number(event.data.pending) || 0);
+    };
+
     update();
-    window.addEventListener('online', update);
+    window.addEventListener('online', backOnline);
     window.addEventListener('offline', update);
+    navigator.serviceWorker?.addEventListener('message', onMessage);
     // While the trader sits on a cached page, the age shown keeps up.
     const timer = window.setInterval(update, 60_000);
     return () => {
-      window.removeEventListener('online', update);
+      window.removeEventListener('online', backOnline);
       window.removeEventListener('offline', update);
+      navigator.serviceWorker?.removeEventListener('message', onMessage);
       window.clearInterval(timer);
     };
   }, []);
+
+  // Back online with a queue still draining: say so, because a trader who submitted a
+  // border report and saw nothing happen will submit it again.
+  if (!offline && pending > 0) {
+    return (
+      <div role="status" aria-live="polite" className="border-b border-brand bg-brand-pale px-4 py-2 text-sm text-ink">
+        <div className="mx-auto flex max-w-2xl items-start gap-2">
+          <span aria-hidden className="font-semibold">↑</span>
+          <p className="leading-snug">
+            Sending {pending} {pending === 1 ? 'item' : 'items'} saved while you were offline.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (!offline || !now) return null;
 

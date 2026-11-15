@@ -113,6 +113,15 @@ self.addEventListener('activate', (event) => {
  * else's phone. Build assets are impersonal and are kept.
  */
 self.addEventListener('message', (event) => {
+  // The page asks for a flush when it notices the connection is back, because
+  // Background Sync is not available in every browser the SRS commits to (Table 2.4
+  // includes Safari, which has none). A feature the fallback channel depends on
+  // cannot itself be optional.
+  if (event.data && event.data.type === 'flush-outbox') {
+    event.waitUntil(flushQueue());
+    return;
+  }
+
   if (event.data && event.data.type === 'purge-pages') {
     event.waitUntil(
       caches.delete(PAGE_CACHE).then(() =>
@@ -124,8 +133,129 @@ self.addEventListener('message', (event) => {
   }
 });
 
+/*
+ * NFR-REL-03 — a write attempted with no connection is queued, not lost.
+ *
+ * Stored in IndexedDB rather than Cache Storage, because a queued action is a record
+ * to be replayed rather than a response to be served, and because it has to survive
+ * the tab being closed on a phone that went in a pocket at a border.
+ *
+ * Only actions carrying an idempotency key are queued. Without one, replaying is
+ * unsafe: the ambiguous case — server wrote the row, response lost — is
+ * indistinguishable from a request that never arrived, so a retry would duplicate.
+ * A write with no key fails honestly instead.
+ */
+const QUEUE_DB = 'bb-outbox';
+const QUEUE_STORE = 'requests';
+
+function openQueue() {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(QUEUE_DB, 1);
+    open.onupgradeneeded = () => {
+      if (!open.result.objectStoreNames.contains(QUEUE_STORE)) {
+        open.result.createObjectStore(QUEUE_STORE, { keyPath: 'key' });
+      }
+    };
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+}
+
+function queueTx(mode, run) {
+  return openQueue().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(QUEUE_STORE, mode);
+        const result = run(tx.objectStore(QUEUE_STORE));
+        tx.oncomplete = () => resolve(result && result.result !== undefined ? result.result : result);
+        tx.onerror = () => reject(tx.error);
+      }),
+  );
+}
+
+async function enqueue(request) {
+  const key = request.headers.get('X-Idempotency-Key');
+  if (!key) return false;
+
+  const body = await request.clone().text();
+  const headers = {};
+  for (const [name, value] of request.headers.entries()) {
+    // Cookies are attached by the browser on replay. Storing them would put a
+    // credential in IndexedDB, where it outlives the session it belongs to.
+    if (name.toLowerCase() === 'cookie') continue;
+    headers[name] = value;
+  }
+
+  await queueTx('readwrite', (store) =>
+    store.put({ key, url: request.url, method: request.method, headers, body, queuedAt: Date.now() }),
+  );
+
+  if (self.registration.sync) {
+    try {
+      await self.registration.sync.register('bb-outbox');
+    } catch {
+      /* replayed on the next page load instead */
+    }
+  }
+  return true;
+}
+
+async function flushQueue() {
+  const pending = await queueTx('readonly', (store) => store.getAll());
+  const items = (pending || []).sort((a, b) => a.queuedAt - b.queuedAt);
+
+  for (const item of items) {
+    try {
+      const response = await fetch(item.url, {
+        method: item.method,
+        headers: item.headers,
+        body: item.body,
+        credentials: 'include',
+      });
+
+      // 4xx means the server understood and refused. Retrying will not change that,
+      // and a queue that retries a refusal forever never drains.
+      if (response.ok || (response.status >= 400 && response.status < 500)) {
+        await queueTx('readwrite', (store) => store.delete(item.key));
+      }
+    } catch {
+      // Still offline. Leave it queued and stop: the rest will fail the same way,
+      // and the order of a trader's own actions is worth preserving.
+      break;
+    }
+  }
+
+  const left = await queueTx('readonly', (store) => store.getAll());
+  const clients = await self.clients.matchAll();
+  for (const client of clients) {
+    client.postMessage({ type: 'outbox', pending: (left || []).length });
+  }
+}
+
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'bb-outbox') event.waitUntil(flushQueue());
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
+
+  if (request.method === 'POST') {
+    // Try the network; on failure, queue it if it can be replayed safely.
+    event.respondWith(
+      fetch(request.clone()).catch(async () => {
+        const queued = await enqueue(request);
+        return new Response(
+          JSON.stringify({ queued, offline: true }),
+          {
+            status: queued ? 202 : 503,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }),
+    );
+    return;
+  }
+
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
