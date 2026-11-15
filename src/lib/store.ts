@@ -22,6 +22,7 @@ import type {
   ThrottleState, TradePlan, TransportRequestStatus, User, UserRole,
 } from './types';
 import type { TermsAcceptance } from './legal';
+import { KEY_RETENTION_HOURS, mayReplay, type Replay, type StoredOutcome } from './idempotency';
 
 // --- row mapping -----------------------------------------------------------
 
@@ -1439,4 +1440,142 @@ export async function termsAcceptances(userId: string): Promise<TermsAcceptance[
     language: r.language as Language,
     acceptedAt: new Date(r.accepted_at).toISOString(),
   }));
+}
+
+// --- NFR-PRI-05: records for the aggregate research export ------------------
+
+/**
+ * One row per shipment, shaped for aggregation and nothing else.
+ *
+ * The subject identifier leaves this function as an opaque key used only to count
+ * distinct traders; no name, phone or account id is selected, so even an unaggregated
+ * dump of this query identifies nobody. Dimensions are deliberately coarse — corridor,
+ * product category, month — because the fine ones are what make a count of five into
+ * one person's week.
+ */
+export async function researchRecords(): Promise<
+  { subjectId: string; dimensions: Record<string, string>; measures: Record<string, number> }[]
+> {
+  const sql = db();
+  const rows = await sql`
+    SELECT
+      s.user_id                                   AS subject,
+      s.corridor_id                               AS corridor,
+      TO_CHAR(s.created_at, 'YYYY-MM')            AS month,
+      s.status                                    AS status,
+      s.plan_snapshot -> 'product' ->> 'category' AS category,
+      (s.plan_snapshot -> 'cost' ->> 'totalUsd')::numeric AS estimated_usd,
+      s.actual_cost_usd                           AS actual_usd
+    FROM shipments s
+  `;
+
+  return rows.map((r) => {
+    const measures: Record<string, number> = {};
+    if (r.estimated_usd !== null) measures.estimatedUsd = Number(r.estimated_usd);
+    if (r.actual_usd !== null) measures.actualUsd = Number(r.actual_usd);
+    // The figure the research is actually for: how wrong the estimate was, as a
+    // percentage, which is the quantity NFR-ACC-06 is about.
+    if (r.estimated_usd !== null && r.actual_usd !== null && Number(r.actual_usd) > 0) {
+      measures.estimateErrorPercent =
+        Math.round(
+          (Math.abs(Number(r.estimated_usd) - Number(r.actual_usd)) / Number(r.actual_usd)) * 10000,
+        ) / 100;
+    }
+
+    return {
+      subjectId: r.subject as string,
+      dimensions: {
+        corridor: (r.corridor as string) ?? 'unknown',
+        category: (r.category as string) ?? 'unknown',
+        month: (r.month as string) ?? 'unknown',
+      },
+      measures,
+    };
+  });
+}
+
+// --- NFR-REL-03: replaying a queued action safely ---------------------------
+
+/**
+ * Run `work` at most once for this key, whatever happens to the network.
+ *
+ * The first caller inserts the key and does the work. A second caller with the same
+ * key finds the row: either the work finished, in which case the original result is
+ * returned without repeating the side effects, or it is still running, in which case
+ * the caller is told to wait rather than racing it.
+ *
+ * The INSERT is what makes this safe rather than the SELECT. Checking for an existing
+ * key and then inserting leaves a window in which two replays both see nothing — and
+ * the window is widest exactly when it matters, with a queue of retries arriving
+ * together the moment a trader regains signal. The primary key closes it in the
+ * database, which is the only place that can.
+ */
+export async function runOnce<T>(
+  key: string,
+  userId: string | null,
+  action: string,
+  work: () => Promise<T>,
+): Promise<Replay<T>> {
+  const sql = db();
+
+  const claimed = await sql`
+    INSERT INTO idempotency_keys (key, user_id, action)
+    VALUES (${key}, ${userId}, ${action})
+    ON CONFLICT (key) DO NOTHING
+    RETURNING key
+  `;
+
+  if (claimed.length === 0) {
+    const [existing] = await sql`
+      SELECT key, user_id, action, result, completed_at, created_at
+        FROM idempotency_keys WHERE key = ${key}
+    `;
+
+    // Vanished between the conflict and the read: expired and swept. Treat it as a
+    // new attempt rather than failing a trader's only submission.
+    if (!existing) return runOnce(key, userId, action, work);
+
+    const outcome: StoredOutcome = {
+      key: existing.key,
+      userId: existing.user_id,
+      action: existing.action,
+      result: existing.result,
+      createdAt: new Date(existing.created_at).toISOString(),
+    };
+
+    // A key presented by someone it does not belong to is treated as absent, not as
+    // an error: an error would confirm the key exists.
+    if (!mayReplay(outcome, userId, action)) {
+      throw new Error('Unknown idempotency key.');
+    }
+
+    if (existing.completed_at === null) return { status: 'in-flight' };
+    return { status: 'replayed', result: existing.result as T };
+  }
+
+  try {
+    const result = await work();
+    await sql`
+      UPDATE idempotency_keys
+         SET result = ${sql.json(result as never)}, completed_at = NOW()
+       WHERE key = ${key}
+    `;
+    return { status: 'fresh', result };
+  } catch (error) {
+    // Release the key so the trader can try again. Keeping it would turn one failed
+    // attempt into a permanent refusal to accept that action.
+    await sql`DELETE FROM idempotency_keys WHERE key = ${key} AND completed_at IS NULL`;
+    throw error;
+  }
+}
+
+/** Housekeeping: keys outlive their usefulness after the retention window. */
+export async function sweepIdempotencyKeys(): Promise<number> {
+  const sql = db();
+  const rows = await sql`
+    DELETE FROM idempotency_keys
+     WHERE created_at < NOW() - (${KEY_RETENTION_HOURS} || ' hours')::interval
+    RETURNING key
+  `;
+  return rows.length;
 }

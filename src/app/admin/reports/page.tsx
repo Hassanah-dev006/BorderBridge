@@ -10,8 +10,9 @@
 import { Notice, PageTitle, StatusPill, DatabaseMissing } from '../../ui';
 import { requireUser } from '@/lib/session';
 import { isConfigured } from '@/lib/db';
-import { operationalMetrics, shipmentsWithOutcomes } from '@/lib/store';
+import { operationalMetrics, shipmentsWithOutcomes, researchRecords } from '@/lib/store';
 import { outcomeOf, accuracyReport, biasLabel, confidenceCaveat } from '@/lib/reporting';
+import { aggregate, riskReport, suppress, MIN_GROUP } from '@/lib/research';
 import { fmtUsd } from '@/lib/engines';
 
 export const dynamic = 'force-dynamic';
@@ -36,7 +37,13 @@ export default async function ReportsPage() {
     );
   }
 
-  const [metrics, rows] = await Promise.all([operationalMetrics(), shipmentsWithOutcomes()]);
+  const [metrics, rows, records] = await Promise.all([
+    operationalMetrics(), shipmentsWithOutcomes(), researchRecords(),
+  ]);
+
+  // NFR-PRI-05 — the re-identification check is run here so the page can refuse the
+  // download, rather than offering a file that the route would then decline to serve.
+  const risk = riskReport(suppress(aggregate(records, ['corridor', 'category', 'month']), 'category'));
   const report = accuracyReport(rows.map((r) => outcomeOf(r.shipment, r.actualUsd, r.recordedAt)));
   const caveat = confidenceCaveat(report.count);
 
@@ -162,6 +169,66 @@ export default async function ReportsPage() {
           Outcomes are recorded by traders on a delivered shipment, against the plan frozen when
           that shipment was created. Comparing today&rsquo;s rules against a cost incurred months
           ago would measure nothing.
+        </p>
+      </section>
+
+      {/* NFR-PRI-05 — aggregate export for research */}
+      <section>
+        <h2 className="text-base font-semibold text-ink">Aggregate export for research</h2>
+        <p className="mt-2 text-sm leading-relaxed text-gray-700">
+          Corridor, product category and month. Counts are of distinct traders, not of
+          movements, and measures are means rather than sums.
+        </p>
+
+        <div className="mt-3 rounded-md border border-gray-200 bg-white p-4">
+          <dl className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <dt className="text-gray-600">Cells</dt>
+              <dd className="font-semibold tabular-nums text-ink">{risk.cells}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-600">Published</dt>
+              <dd className="font-semibold tabular-nums text-ink">{risk.published}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-600">Below minimum of {MIN_GROUP}</dt>
+              <dd className="font-semibold tabular-nums text-ink">{risk.suppressedBelowThreshold}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-600">Suppressed to block subtraction</dt>
+              <dd className="font-semibold tabular-nums text-ink">{risk.suppressedComplementary}</dd>
+            </div>
+          </dl>
+
+          {risk.safe ? (
+            <a
+              href="/admin/research"
+              className="tappable mt-4 inline-flex items-center rounded-md bg-brand px-4 py-3 text-sm font-medium text-white"
+            >
+              Download the extract
+            </a>
+          ) : (
+            <div className="mt-4 rounded-md border border-gold bg-gold-pale p-3 text-sm leading-relaxed text-ink">
+              <p className="flex items-start gap-2">
+                <span aria-hidden className="font-semibold">!</span>
+                <span className="font-semibold">This extract cannot be released yet.</span>
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-6">
+                {risk.warnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+              <p className="mt-2 text-xs text-gray-700">
+                A pre-release check that cannot stop a release is not a check, so the file is
+                withheld rather than flagged.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <p className="mt-3 text-xs leading-relaxed text-gray-500">
+          Suppression runs twice. Any cell with fewer than {MIN_GROUP} distinct traders is
+          withheld; then, wherever a group has exactly one withheld cell, a second is withheld
+          too — otherwise the first could be recovered by subtracting the published rows from
+          the total.
         </p>
       </section>
     </div>
