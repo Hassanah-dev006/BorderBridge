@@ -10,6 +10,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:admin": "node scripts/make-admin.mjs",
     "lint": "next lint",
+    "verify:targets": "node scripts/check-targets.mjs",
     "check": "npm run lint && tsc --noEmit && npm test"
   },
   "dependencies": {
