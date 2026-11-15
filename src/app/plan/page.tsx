@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { buildTradePlan, fmtUsd, fmtLocal, UnsupportedCorridorError, UnknownProductError } from '@/lib/engines';
 import { recentReports, listActiveListings, publishedOverlays } from '@/lib/store';
 import { effectiveRules } from '@/lib/rules-admin';
-import { getRulesForCorridor } from '@/lib/repository';
+import { getCorridor, getRulesForCorridor } from '@/lib/repository';
+import { rateNotice, refreshRatesQuietly } from '@/lib/rates';
 import { matchListings, publicName, priceLabel, quantityLabel } from '@/lib/market';
 import { isConfigured } from '@/lib/db';
 import { currentUser } from '@/lib/session';
@@ -39,6 +40,16 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
   // merged over it. Fetched here and passed in, so the engine stays free of I/O.
   const overlays = isConfigured() ? await publishedOverlays() : [];
   const rules = effectiveRules(getRulesForCorridor(corridorId), overlays);
+
+  // NFR-REL-04 / NFR-ACC-03 — try the external rate source, fall back to the curated
+  // table, and carry back enough to tell the trader which one they are looking at.
+  // Only the currencies this corridor actually needs have to validate.
+  const corridorForRates = getCorridor(corridorId);
+  const rates = await refreshRatesQuietly(
+    ['USD', corridorForRates?.originCurrency, corridorForRates?.destinationCurrency, currency]
+      .filter((c): c is string => Boolean(c)),
+  );
+  const ratesNotice = rates ? rateNotice(rates) : null;
 
   let plan: TradePlan;
   try {
@@ -93,7 +104,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
         <ul className="mt-2 space-y-1 text-sm text-gray-700">
           {el.reasons.map((r, i) => (
             <li key={i} className="flex gap-2">
-              <span aria-hidden className="text-gray-400">•</span>
+              <span aria-hidden className="text-gray-500">•</span>
               <span>{r}</span>
             </li>
           ))}
@@ -207,7 +218,10 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
       {/* FR-CST-01 / FR-CST-03 — itemised cost with per-line attribution */}
       <section>
         <h2 className="text-base font-semibold text-ink">What it should cost</h2>
-        <div className="mt-3 overflow-hidden rounded-md border border-gray-200 bg-white">
+        {/* NFR-CMP-02 — overflow-x-auto, not overflow-hidden. The amount cells are
+            whitespace-nowrap, so at 320px hiding the overflow would clip a figure the
+            trader cannot then reach. A scrollbar is the honest failure. */}
+        <div className="mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white">
           <table className="w-full text-sm">
             <tbody>
               {cost.lines.map((l, i) => (
@@ -251,10 +265,21 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
           {' '}· rate retrieved {cost.exchangeRateAgeHours}h ago
         </p>
 
+        {/* NFR-REL-04 — when the live source is unavailable the estimate is still
+            produced, from the saved table, and says so. Falling back quietly is not
+            falling back correctly. */}
+        {ratesNotice && (
+          <p className="mt-2 flex items-start gap-2 rounded-md border border-gold bg-gold-pale px-3 py-2 text-xs leading-relaxed text-ink">
+            {/* NFR-USA-05 — the meaning survives without the colour. */}
+            <span aria-hidden className="font-semibold">!</span>
+            <span>{ratesNotice}</span>
+          </p>
+        )}
+
         {/* FR-CST-04 — non-dismissible limitation statement */}
         <p className="mt-3 rounded-md border-l-4 border-brand bg-brand-pale p-3 text-xs leading-relaxed text-gray-700">
-          This is an estimate, not a binding determination. Duties, taxes and fees are finally assessed
-          by the customs authority at the border, which may reach a different figure.
+          This is an estimate, not a binding determination. The officer at the border sets the
+          final duties, taxes and fees. The figure may differ.
         </p>
       </section>
 

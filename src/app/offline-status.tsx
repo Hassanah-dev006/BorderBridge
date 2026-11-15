@@ -48,7 +48,7 @@ export default function OfflineStatus({ renderedAt }: { renderedAt: string }) {
       role="status"
       aria-live="polite"
       className={`border-b px-4 py-2 text-sm ${
-        old ? 'border-gold bg-gold-pale text-ink' : 'border-brand-light bg-brand-pale text-ink'
+        old ? 'border-gold bg-gold-pale text-ink' : 'border-brand bg-brand-pale text-ink'
       }`}
     >
       <div className="mx-auto flex max-w-2xl items-start gap-2">

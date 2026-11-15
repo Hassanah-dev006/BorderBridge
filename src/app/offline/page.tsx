@@ -35,7 +35,10 @@ export default function OfflinePage() {
           <Link
             key={href}
             href={href}
-            className="tappable flex items-center justify-between rounded-lg border border-brand-light bg-white px-4 py-3 text-sm font-medium text-brand"
+            // border-brand, not brand-light: this border is the boundary of a control,
+            // so WCAG 2.2 §1.4.11 asks 3:1 of it. A decorative panel border does not
+            // carry that obligation; this one does.
+            className="tappable flex items-center justify-between rounded-lg border border-brand bg-white px-4 py-3 text-sm font-medium text-brand"
           >
             {LABELS[href] ?? href}
             <span aria-hidden>→</span>
@@ -46,9 +49,9 @@ export default function OfflinePage() {
       <section className="rounded-lg border border-gold bg-gold-pale px-4 py-3 text-sm leading-relaxed text-ink">
         <h2 className="font-semibold">While you are offline</h2>
         <p className="mt-1">
-          You can read anything already saved. You cannot sign in, submit a border
-          report, or update a shipment — those need a connection, and the application
-          will not pretend otherwise by queuing them silently.
+          You can read anything already saved. You cannot sign in, send a border report,
+          or update a shipment. Those need a connection, and the app will not pretend
+          otherwise by queuing them quietly.
         </p>
       </section>
 

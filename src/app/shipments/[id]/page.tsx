@@ -91,7 +91,7 @@ export default async function ShipmentPage({
                   )}
                 </div>
                 <div className="pb-4">
-                  <p className={`text-sm ${isNow ? 'font-semibold text-ink' : reached ? 'text-ink' : 'text-gray-400'}`}>
+                  <p className={`text-sm ${isNow ? 'font-semibold text-ink' : reached ? 'text-ink' : 'text-gray-500'}`}>
                     {STATUS_LABELS[s]}
                     {isNow && <span className="ml-2 text-xs font-normal text-brand">now</span>}
                   </p>
@@ -133,8 +133,8 @@ export default async function ShipmentPage({
 
         {!r.readyToTravel && shipment.status === 'planned' && (
           <p className="mt-2 text-sm text-gray-600">
-            You cannot mark this shipment ready to travel until every mandatory document is obtained.
-            Outstanding: <strong className="font-medium text-ink">{r.blockingItem?.name}</strong>.
+            This shipment is not ready to travel yet. You still need:{' '}
+            <strong className="font-medium text-ink">{r.blockingItem?.name}</strong>.
           </p>
         )}
       </section>
@@ -257,8 +257,8 @@ export default async function ShipmentPage({
               </button>
             </form>
             <p className="mt-1 text-xs text-gray-500">
-              Only a trader whose shipment was delivered can rate, so every rating
-              corresponds to a movement that actually happened.
+              Only a trader whose shipment was delivered can rate a provider. So every rating
+              comes from a trip that really happened.
             </p>
           </div>
         )}

@@ -99,7 +99,7 @@ export default async function ReportPage({
                       <li key={r.id} className="text-sm text-gray-700">
                         <span className="font-medium">{r.category.replace('-', ' ')}</span> · about{' '}
                         {r.waitMinutes} min · <span className="text-gray-500">{r.ageHours}h ago</span>
-                        <span className="text-gray-400"> · weight {r.weight.toFixed(2)}</span>
+                        <span className="text-gray-600"> · weight {r.weight.toFixed(2)}</span>
                         {r.note && <span className="text-gray-600"> — {r.note}</span>}
                       </li>
                     ))}
