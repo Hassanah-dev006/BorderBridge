@@ -428,6 +428,13 @@ Which SRS requirement each part of the code realises:
 | NFR-CMP-03 installable, no app store | `src/app/manifest.ts`, `public/sw.js`, `public/icon-*.png` |
 | NFR-REL-02 cached content readable offline | `public/sw.js` network-first with a cache fallback; `offline.ts` sets the policy |
 | Constraint C4 offline-first, not offline-tolerant | the three rows above, plus the age banner in `offline-status.tsx` |
+| NFR-REL-04 external source failure degrades, not fails | `rates.ts` — timeout, validation, curated fallback, age shown; fault-injected in tests |
+| NFR-ACC-03 exchange rate age surfaced | `rates.ts rateNotice`, shown on `/plan` |
+| NFR-USA-03 reading level | `readability.ts`, enforced over the dictionary and the screens in `tests/readability.test.ts` |
+| NFR-USA-04 WCAG 2.2 AA contrast and 44 px targets | `contrast.ts`, every pair asserted in `tests/contrast.test.ts` |
+| NFR-CMP-01 browser targets | `.browserslistrc` (Chromium 61 floor), verified against the build by `npm run verify:targets` |
+| NFR-CMP-02 operable from 320 px to 1920 px | `tests/compatibility.test.ts` — tables scroll rather than clip, no fixed width over 288 px |
+| NFR-LEG-01 terms accepted, with version and timestamp | `legal.ts`, `terms_acceptances` table, consent at registration, re-consent banner on a version change |
 
 **Every functional requirement in the SRS is now implemented.** One of them,
 FR-LOC-01, is complete in its machinery and incomplete in its content — see
@@ -441,7 +448,7 @@ FR-LOC-01, is complete in its machinery and incomplete in its content — see
 npm test
 ```
 
-265 tests across fourteen files:
+358 tests across nineteen files:
 
 | File | Covers |
 |---|---|
@@ -458,6 +465,11 @@ npm test
 | `tests/export.test.ts` | That citations, verification dates and the limitation statement travel with the export, and that it contains no markdown a message app would mangle |
 | `tests/schema.test.ts` | Applies `db/schema.sql` to real Postgres in-process and checks constraints and cascades |
 | `tests/offline.test.ts` | Which pages may be stored and which never may, how a cached page's age is worded, and that `public/sw.js` still mirrors the policy it enforces |
+| `tests/rates.test.ts` | Fault injection on the exchange-rate adapter: unreachable, timed out, error status, HTML instead of JSON, a zero rate, a missing currency — and an estimate produced in every one |
+| `tests/contrast.test.ts` | WCAG 2.2 ratios for every foreground/background pair the interface uses, and that no screen reintroduces a grey too light to read |
+| `tests/readability.test.ts` | That trader-facing English stays at grade 9 or below, in the dictionary and in the screens |
+| `tests/legal.test.ts` | Who still has to accept the terms, what their own record reads back as, and that registration cannot proceed without acceptance |
+| `tests/compatibility.test.ts` | The declared browser floor, and that nothing is clipped or unreachable at 320 px |
 
 Everything a change must pass, in one command:
 
@@ -466,6 +478,18 @@ npm run check
 ```
 
 That is lint, then type check, then the test suite — NFR-MNT-02.
+
+One check needs a build and so is a separate command:
+
+```bash
+npm run build && npm run verify:targets
+```
+
+It reads the built chunks and fails if any contain syntax above the floor in
+`.browserslistrc` — optional chaining, nullish coalescing, logical assignment, private
+class fields. Android 8 ships Chromium 61 as its system WebView, and a bundle with
+optional chaining in it does not degrade on that handset, it throws on parse. The
+reference device in Table 2.3 is exactly that handset.
 
 ---
 
@@ -479,8 +503,13 @@ Stated plainly rather than hidden:
 2. **One corridor.** Rwanda → Uganda and the reverse. The architecture is
    corridor-agnostic — adding Kenya means adding rows to `data/rules.json` — but only
    the pilot corridor has been researched and cited.
-3. **Exchange rates are cached, not live.** `catalogue.json` holds a rate table with a
-   retrieval timestamp, and the interface shows its age.
+3. **Exchange rates are cached unless a source is configured.** `src/lib/rates.ts` is a
+   real adapter: set `EXCHANGE_RATE_URL` and it fetches, validates and uses a live
+   table; leave it unset and the curated table in `catalogue.json` is used, which is
+   what constraint C8 asks for. Either way the age is shown, and if a configured source
+   fails the estimate is still produced and says it came from the saved rate. A payload
+   that does not validate completely is discarded completely — a wrong rate is worse
+   than an old one.
 4. **All eleven SRS modules are built**, and all 33 functional requirements implemented. The traceability table above says which.
 5. **Rules are amended as overlays, not by editing the file at runtime.** Constraint C1
    wants a hand-editable knowledge base in version control; FR-ADM-01 wants an
@@ -518,7 +547,19 @@ Stated plainly rather than hidden:
     border report or a shipment transition submitted twice on reconnect would corrupt
     exactly the data other traders rely on. Failing honestly while offline is the
     better of the two wrong answers until the key is in place.
-11. **Two pages are never stored on the device.** Sign-in, registration, verification
+12. **The terms and privacy notice are in English and French only.** NFR-LEG-01 asks
+    for every supported language. The acceptance machinery is complete — versioned,
+    timestamped, recorded against the language read, re-presented when the version
+    changes — but Kiswahili and Kinyarwanda fall back to English, for the same reason
+    the regulatory content does. These are statements about a trader's legal rights,
+    and a translation nobody has checked is worse than an honest gap. `/privacy` says
+    so on the page rather than leaving the reader to notice.
+13. **Reading level is measured in English only.** `readability.ts` scores
+    trader-facing English against Flesch–Kincaid and the test suite holds it at grade 9
+    or below. The French, Kiswahili and Kinyarwanda halves of NFR-USA-03 need a fluent
+    reader, which is the verification method the SRS names for them and is not
+    something a test can stand in for.
+14. **Two pages are never stored on the device.** Sign-in, registration, verification
     and recovery carry credentials or a one-time code, and `/privacy/export` carries
     everything the system holds about one person. Section 2.7 assumes a handset may be
     shared with a family member, so Cache Storage outliving a session is a real risk
