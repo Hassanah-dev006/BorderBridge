@@ -423,6 +423,11 @@ Which SRS requirement each part of the code realises:
 | NFR-MNT-02 linting enforced | `.eslintrc.json`, `npm run check` |
 | NFR-SCA-04 a new language needs only translations | `i18n.ts` — demonstrated by FR-LOC-01 |
 | NFR-PER-03 works on a slow connection | server-rendered; forms work without JavaScript |
+| NFR-PER-04 payload under 500 KB compressed | 96.2 kB of JavaScript and 3.8 kB of CSS on first load |
+| NFR-MNT-01 ≥ 80% coverage of domain logic | `engines.ts` 98.9%, `border.ts` 98.1%, `transport.ts` 99.4%, `market`/`reporting`/`shipments`/`export`/`offline` 100% |
+| NFR-CMP-03 installable, no app store | `src/app/manifest.ts`, `public/sw.js`, `public/icon-*.png` |
+| NFR-REL-02 cached content readable offline | `public/sw.js` network-first with a cache fallback; `offline.ts` sets the policy |
+| Constraint C4 offline-first, not offline-tolerant | the three rows above, plus the age banner in `offline-status.tsx` |
 
 **Every functional requirement in the SRS is now implemented.** One of them,
 FR-LOC-01, is complete in its machinery and incomplete in its content — see
@@ -436,7 +441,7 @@ FR-LOC-01, is complete in its machinery and incomplete in its content — see
 npm test
 ```
 
-238 tests across thirteen files:
+265 tests across fourteen files:
 
 | File | Covers |
 |---|---|
@@ -452,6 +457,7 @@ npm test
 | `tests/i18n.test.ts` | That an untranslated string falls back to English rather than rendering empty, and that the coverage figure is measured from the dictionary |
 | `tests/export.test.ts` | That citations, verification dates and the limitation statement travel with the export, and that it contains no markdown a message app would mangle |
 | `tests/schema.test.ts` | Applies `db/schema.sql` to real Postgres in-process and checks constraints and cascades |
+| `tests/offline.test.ts` | Which pages may be stored and which never may, how a cached page's age is worded, and that `public/sw.js` still mirrors the policy it enforces |
 
 Everything a change must pass, in one command:
 
@@ -504,6 +510,20 @@ Stated plainly rather than hidden:
    service, the rule comparison runs when a user opens the notifications page. The
    detection, the diff and the fan-out to subscribers are real; only the delivery
    channel is missing, and the interface says so.
+10. **Offline reading works; offline writing does not.** Constraint C4 and NFR-REL-02
+    are met: the application installs, and any page already opened stays readable with
+    no connection, stamped with the time it was loaded. NFR-REL-03 — queuing an action
+    taken offline and syncing it later — is not built. That is deliberate rather than
+    unfinished. Replaying a write safely needs an idempotency key end to end, and a
+    border report or a shipment transition submitted twice on reconnect would corrupt
+    exactly the data other traders rely on. Failing honestly while offline is the
+    better of the two wrong answers until the key is in place.
+11. **Two pages are never stored on the device.** Sign-in, registration, verification
+    and recovery carry credentials or a one-time code, and `/privacy/export` carries
+    everything the system holds about one person. Section 2.7 assumes a handset may be
+    shared with a family member, so Cache Storage outliving a session is a real risk
+    rather than a theoretical one. When the signed-in account changes, every stored
+    page is discarded.
 
 ---
 
