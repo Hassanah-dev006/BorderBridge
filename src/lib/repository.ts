@@ -43,11 +43,38 @@ export function getRulesForCorridor(corridorId: string): RegulatoryRule[] {
   return rules.filter((r) => r.corridorId === corridorId);
 }
 
-export function getExchangeRates(): { retrievedAt: string; base: string; rates: Record<string, number> } {
+/**
+ * The curated fallback dataset constraint C8 requires: rates that ship with the
+ * application and are always available, whatever the external source is doing.
+ */
+export function getCuratedRates(): { retrievedAt: string; base: string; rates: Record<string, number> } {
   const { retrievedAt, base, rates } = catalogue.exchangeRates as {
     retrievedAt: string; base: string; rates: Record<string, number>;
   };
   return { retrievedAt, base, rates };
+}
+
+/**
+ * A validated live table, when the adapter has managed to fetch one.
+ *
+ * Held here rather than passed through every caller because this is the seam the whole
+ * application already reads rates through — so the live source arrives behind the same
+ * interface, and nothing above this file has to know whether the rate came from the
+ * network or from the file (NFR-CMP-05).
+ */
+let liveRates: { retrievedAt: string; base: string; rates: Record<string, number> } | null = null;
+
+export function setLiveRates(table: { retrievedAt: string; base: string; rates: Record<string, number> }): void {
+  liveRates = table;
+}
+
+/** Used by tests, and on sign-out of a configured source. */
+export function clearLiveRates(): void {
+  liveRates = null;
+}
+
+export function getExchangeRates(): { retrievedAt: string; base: string; rates: Record<string, number> } {
+  return liveRates ?? getCuratedRates();
 }
 
 /**
