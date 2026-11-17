@@ -1,23 +1,5 @@
 openapi: 3.1.0
 
-# NFR-MNT-04 — "All public API endpoints shall be documented in an OpenAPI
-# specification kept current with the implementation."
-#
-# A note on what this does and does not cover, because the honest answer is more
-# useful than a padded one. BorderBridge is server-rendered: the trader interface uses
-# React server components and server actions, which are an internal transport between
-# a page and its own server and are not a public API. Documenting them here would be
-# documenting a framework detail, and it would go stale the moment a form changed.
-#
-# What IS a public API is the small set of endpoints other systems call: the USSD and
-# SMS callbacks an aggregator invokes on behalf of a trader with no data connection,
-# and the administrative research extract. Those have consumers outside this codebase,
-# so those are what this file specifies.
-#
-# tests/openapi.test.ts checks that every route handler in src/app has a path here and
-# that every path here exists as a handler, so "kept current" is enforced rather than
-# intended.
-
 info:
   title: BorderBridge
   version: '1.0'
