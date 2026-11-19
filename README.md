@@ -435,6 +435,7 @@ Which SRS requirement each part of the code realises:
 | NFR-CMP-01 browser targets | `.browserslistrc` (Chromium 61 floor), verified against the build by `npm run verify:targets` |
 | NFR-CMP-02 operable from 320 px to 1920 px | `tests/compatibility.test.ts` — tables scroll rather than clip, no fixed width over 288 px |
 | NFR-LEG-01 terms accepted, with version and timestamp | `legal.ts`, `terms_acceptances` table, consent at registration, re-consent banner on a version change |
+| FR-CST-02 origin, destination and preferred currencies | `display-currency.ts`, the USD/RWF/UGX switch on `/plan` — defaults to the origin currency, carries through to the printable sheet |
 | NFR-MNT-05 structured logs, no personal data | `log.ts` — every field redacted, users referred to by a keyed pseudonym |
 | NFR-PRI-05 anonymised research export | `research.ts`, `/admin/research` — primary and complementary suppression, release refused if the risk check fails |
 | NFR-PER-01/02/06, NFR-SCA-03 | `npm run bench` — measured at 50,000 users and 10,000 shipments |
@@ -483,6 +484,7 @@ npm test
 | `tests/idempotency.test.ts` | Who may replay a key, for how long, and that the duplicate is prevented by the database rather than by a read-then-write |
 | `tests/ussd.test.ts` | GSM 03.38 transliteration, the 182-septet budget on every screen, and session state derived rather than stored |
 | `tests/openapi.test.ts` | That the specification and the route handlers have not drifted apart, in both directions |
+| `tests/display-currency.test.ts` | That the converted column adds up to the total shown, that a missing rate is an error rather than a silent 1:1, and that switching currency keeps the consignment |
 
 Everything a change must pass, in one command:
 
