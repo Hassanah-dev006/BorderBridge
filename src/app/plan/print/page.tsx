@@ -12,7 +12,10 @@ import Link from 'next/link';
 import { buildTradePlan, fmtUsd, fmtLocal, UnsupportedCorridorError, UnknownProductError } from '@/lib/engines';
 import { recentReports, publishedOverlays } from '@/lib/store';
 import { effectiveRules } from '@/lib/rules-admin';
-import { getRulesForCorridor } from '@/lib/repository';
+import { getCorridor, getRulesForCorridor, getExchangeRates } from '@/lib/repository';
+import {
+  allowedCurrencies, convertTable, rateFor, resolveDisplayCurrency,
+} from '@/lib/display-currency';
 import { isConfigured } from '@/lib/db';
 import { withLanguage } from '@/lib/language';
 import { plainTextChecklist } from '@/lib/export';
@@ -50,7 +53,24 @@ export default async function PrintPlanPage({ searchParams }: { searchParams: Se
     throw e;
   }
 
-  const query = `corridor=${corridorId}&product=${productId}&quantity=${quantity}&value=${declaredValue}&currency=${currency}`;
+  // FR-CST-02 — the sheet is printed in the currency the trader chose on screen. A
+  // paper carried to a border should be readable in the money it will be paid in.
+  const corridorHere = getCorridor(corridorId);
+  const showCurrency = resolveDisplayCurrency(
+    one(searchParams.show),
+    allowedCurrencies(corridorHere?.originCurrency, corridorHere?.destinationCurrency),
+  );
+  const showUsd = showCurrency === 'USD';
+  const converted = showUsd
+    ? { currency: 'USD', lines: plan.cost.lines.map((l) => l.amountUsd), total: plan.cost.totalUsd, rounding: 0 }
+    : convertTable(
+        plan.cost.lines.map((l) => l.amountUsd),
+        plan.cost.totalUsd,
+        rateFor(getExchangeRates().rates, showCurrency),
+        showCurrency,
+      );
+
+  const query = `corridor=${corridorId}&product=${productId}&quantity=${quantity}&value=${declaredValue}&currency=${currency}&show=${showCurrency}`;
   const text = plainTextChecklist(plan, lang);
 
   return (
@@ -133,7 +153,8 @@ export default async function PrintPlanPage({ searchParams }: { searchParams: Se
                     <div className="text-xs text-gray-600">{l.detail}</div>
                   </td>
                   <td className="whitespace-nowrap py-1 text-right align-top tabular-nums text-ink">
-                    {fmtUsd(l.amountUsd)}
+                    {showUsd ? fmtUsd(l.amountUsd) : fmtLocal(converted.lines[i], showCurrency)}
+                    {!showUsd && <div className="text-xs text-gray-600">{fmtUsd(l.amountUsd)}</div>}
                   </td>
                 </tr>
               ))}
@@ -142,15 +163,18 @@ export default async function PrintPlanPage({ searchParams }: { searchParams: Se
                   {tr('plan.total')} <span className="text-xs font-normal">± {plan.cost.confidencePercent}%</span>
                 </td>
                 <td className="whitespace-nowrap py-2 text-right font-bold tabular-nums text-ink">
-                  {fmtUsd(plan.cost.totalUsd)}
+                  {showUsd ? fmtUsd(plan.cost.totalUsd) : fmtLocal(converted.total, showCurrency)}
+                  {!showUsd && <div className="text-xs font-normal text-gray-600">{fmtUsd(plan.cost.totalUsd)}</div>}
                 </td>
               </tr>
             </tbody>
           </table>
           <p className="mt-1 text-xs text-gray-700">
-            {plan.cost.conversions.map((c, i) => (
-              <span key={c.currency}>{i > 0 && ' · '}{fmtLocal(c.amount, c.currency)}</span>
-            ))}
+            {plan.cost.conversions
+              .filter((c) => c.currency !== showCurrency)
+              .map((c, i) => (
+                <span key={c.currency}>{i > 0 && ' · '}{fmtLocal(c.amount, c.currency)}</span>
+              ))}
           </p>
           {plan.cost.lines.some((l) => l.verificationStatus === 'needs-verification') && (
             <p className="mt-1 text-xs text-gray-600">(*) {tr('plan.pendingReview')}</p>

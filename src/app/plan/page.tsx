@@ -6,8 +6,11 @@ import Link from 'next/link';
 import { buildTradePlan, fmtUsd, fmtLocal, UnsupportedCorridorError, UnknownProductError } from '@/lib/engines';
 import { recentReports, listActiveListings, publishedOverlays } from '@/lib/store';
 import { effectiveRules } from '@/lib/rules-admin';
-import { getCorridor, getRulesForCorridor } from '@/lib/repository';
+import { getCorridor, getRulesForCorridor, getExchangeRates } from '@/lib/repository';
 import { rateNotice, refreshRatesQuietly } from '@/lib/rates';
+import {
+  allowedCurrencies, convertTable, currencyHref, rateFor, resolveDisplayCurrency,
+} from '@/lib/display-currency';
 import { matchListings, publicName, priceLabel, quantityLabel } from '@/lib/market';
 import { isConfigured } from '@/lib/db';
 import { currentUser } from '@/lib/session';
@@ -45,6 +48,14 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
   // table, and carry back enough to tell the trader which one they are looking at.
   // Only the currencies this corridor actually needs have to validate.
   const corridorForRates = getCorridor(corridorId);
+
+  // FR-CST-02 — which currency the table is shown in. Defaults to the origin currency,
+  // because that is the money the trader actually holds.
+  const currencyChoices = allowedCurrencies(
+    corridorForRates?.originCurrency,
+    corridorForRates?.destinationCurrency,
+  );
+  const showCurrency = resolveDisplayCurrency(one(searchParams.show), currencyChoices);
   const rates = await refreshRatesQuietly(
     ['USD', corridorForRates?.originCurrency, corridorForRates?.destinationCurrency, currency]
       .filter((c): c is string => Boolean(c)),
@@ -70,6 +81,19 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
   }
 
   const { eligibility: el, cost, checklist, crossingRanking: cr } = plan;
+
+  // FR-CST-02 — the table converted for display. It reads the same rate table the
+  // estimate used; pulling a fresh one here would mean the lines and the total came
+  // from different moments in the market, which is the failure rates.ts prevents.
+  const showUsd = showCurrency === 'USD';
+  const converted = showUsd
+    ? { currency: 'USD', lines: cost.lines.map((l) => l.amountUsd), total: cost.totalUsd, rounding: 0 }
+    : convertTable(
+        cost.lines.map((l) => l.amountUsd),
+        cost.totalUsd,
+        rateFor(getExchangeRates().rates, showCurrency),
+        showCurrency,
+      );
 
   return (
     <div className="space-y-6">
@@ -218,6 +242,33 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
       {/* FR-CST-01 / FR-CST-03 — itemised cost with per-line attribution */}
       <section>
         <h2 className="text-base font-semibold text-ink">What it should cost</h2>
+
+        {/* FR-CST-02 — the trader chooses the currency. Links rather than a control
+            that needs JavaScript, so the choice survives in the offline cache and on
+            the entry-level handset Table 2.3 names as the reference device. */}
+        {currencyChoices.length > 1 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-600">Show in</span>
+            {currencyChoices.map((code) => {
+              const active = code === showCurrency;
+              return (
+                <Link
+                  key={code}
+                  href={currencyHref(searchParams, code)}
+                  aria-current={active ? 'true' : undefined}
+                  className={`tappable inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${
+                    active
+                      ? 'bg-brand text-white'
+                      : 'border border-brand text-brand'
+                  }`}
+                >
+                  {code}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
         {/* NFR-CMP-02 — overflow-x-auto, not overflow-hidden. The amount cells are
             whitespace-nowrap, so at 320px hiding the overflow would clip a figure the
             trader cannot then reach. A scrollbar is the honest failure. */}
@@ -237,7 +288,12 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
                     <div className="text-xs text-gray-500">{l.sourceCitation}</div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right align-top font-medium tabular-nums text-ink">
-                    {fmtUsd(l.amountUsd)}
+                    {showUsd ? fmtUsd(l.amountUsd) : fmtLocal(converted.lines[i], showCurrency)}
+                    {/* USD stays beside every figure: it is the currency the rule is
+                        written in, and it keeps the USD 2,000 threshold checkable. */}
+                    {!showUsd && (
+                      <div className="text-xs font-normal text-gray-500">{fmtUsd(l.amountUsd)}</div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -247,7 +303,10 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
                   <div className="text-xs font-normal text-gray-600">± {cost.confidencePercent}%</div>
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-right text-base font-bold tabular-nums text-brand">
-                  {fmtUsd(cost.totalUsd)}
+                  {showUsd ? fmtUsd(cost.totalUsd) : fmtLocal(converted.total, showCurrency)}
+                  {!showUsd && (
+                    <div className="text-xs font-normal text-gray-600">{fmtUsd(cost.totalUsd)}</div>
+                  )}
                 </td>
               </tr>
             </tbody>
@@ -256,12 +315,14 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
 
         <p className="mt-2 text-xs text-gray-600">
           Also{' '}
-          {cost.conversions.map((c, i) => (
-            <span key={c.currency}>
-              {i > 0 && ' · '}
-              <strong className="font-medium">{fmtLocal(c.amount, c.currency)}</strong>
-            </span>
-          ))}
+          {cost.conversions
+            .filter((c) => c.currency !== showCurrency)
+            .map((c, i) => (
+              <span key={c.currency}>
+                {i > 0 && ' · '}
+                <strong className="font-medium">{fmtLocal(c.amount, c.currency)}</strong>
+              </span>
+            ))}
           {' '}· rate retrieved {cost.exchangeRateAgeHours}h ago
         </p>
 
@@ -286,7 +347,13 @@ export default async function PlanPage({ searchParams }: { searchParams: Search 
       {/* FR-REQ-05 — take the checklist with you */}
       <section className="border-t border-gray-200 pt-5">
         <Link
-          href={`/plan/print?corridor=${corridorId}&product=${productId}&quantity=${quantity}&value=${declaredValue}&currency=${currency}`}
+          // The chosen currency travels to the printable sheet: a trader who switched
+          // to francs on screen is carrying a paper they will read in francs.
+          href={currencyHref(
+            { corridor: corridorId, product: productId, quantity: String(quantity), value: String(declaredValue), currency },
+            showCurrency,
+            '/plan/print',
+          )}
           className="tappable flex items-center justify-center rounded-md border border-brand bg-white px-4 py-3 text-base font-semibold text-brand"
         >
           Print, save as PDF, or copy as text
