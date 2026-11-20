@@ -170,7 +170,7 @@ Safe to re-run at any time — every statement is guarded with `IF NOT EXISTS`.
 npm test
 ```
 
-Expect **238 tests passing, 0 failing**. These need no database: the schema tests run
+Expect **483 tests passing, 0 failing**. These need no database: the schema tests run
 Postgres in-process through PGlite.
 
 ---
@@ -351,7 +351,7 @@ BorderBridge/
 │   ├── export.ts            The plain-text checklist (FR-REQ-05)
 │   └── shipments.ts         Readiness and milestone rules
 ├── src/app/               Pages, server-rendered
-└── tests/                 87 tests
+└── tests/                 483 tests across 24 files
 ```
 
 ### Two decisions worth explaining
@@ -457,7 +457,7 @@ FR-LOC-01, is complete in its machinery and incomplete in its content — see
 npm test
 ```
 
-459 tests across twenty-five files:
+483 tests across twenty-four files:
 
 | File | Covers |
 |---|---|
@@ -525,7 +525,13 @@ Stated plainly rather than hidden:
    fails the estimate is still produced and says it came from the saved rate. A payload
    that does not validate completely is discarded completely — a wrong rate is worse
    than an old one.
-4. **All eleven SRS modules are built**, and all 33 functional requirements implemented. The traceability table above says which.
+4. **All eleven SRS modules are built**, all 33 functional requirements implemented, and
+   52 of the 58 non-functional requirements satisfied. The traceability table above says
+   which. The remaining six need a pilot rather than code — a month of uptime monitoring
+   (NFR-REL-01), a rehearsed recovery (NFR-REL-05), usability testing with real traders
+   (NFR-USA-01, NFR-USA-02), and the cost-accuracy figure (NFR-ACC-06), which needs about
+   twenty completed movements before a median means anything. `BorderBridge-docs/`
+   carries the protocols for running each of them.
 5. **Rules are amended as overlays, not by editing the file at runtime.** Constraint C1
    wants a hand-editable knowledge base in version control; FR-ADM-01 wants an
    administrator to amend rules through the interface. A deployed application cannot
