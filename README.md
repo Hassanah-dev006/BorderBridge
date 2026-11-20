@@ -14,7 +14,7 @@ Built for the ALU BSc Software Engineering summative, implementing the requireme
 *BorderBridge — Project Proposal and Software Requirements Specification*.
 
 - **Live application:** <https://border-bridge-sigma.vercel.app>
-- **SRS document:** _add your Google Drive link here_
+- **SRS document:** <https://docs.google.com/document/d/16lNkh2KS8_J3eP-FqzChvQBI85lKpePQS88Z66KXyfw/edit?usp=sharing>
 
 ---
 
